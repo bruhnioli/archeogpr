@@ -84,10 +84,21 @@ durumları da `done` (bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
   komutları. **Hiçbir aday canonical seçilmedi, Gain başlatılmadı.** Bkz.
   [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
   `outputs/sprint04a/`.
+- **Sprint 4A.1 (2026-07-16, PR #1):** karar QC düzeltmesi — pencere
+  terminolojisi (`applied_window_nominal_length_m` vs `_center_to_
+  center_span_m`), ortak-scale B-scan montajları
+  (`save_common_scale_output_comparison()`/`_removed_comparison()`),
+  YENİ paired-control sentetik hedef-retention deneyi
+  (`run_paired_control_target_attenuation_experiments()`), `1 -
+  coherence` "preservation" çerçevesinin kaldırılması. **Kritik bulgu:**
+  A1/A2 yüksek RMS retention ile "preservation-favoring" ama
+  `paired_control_long_target_retention` ≈ 0 — artık `Engineering
+  interpretation`'da açık `CONFLICT` olarak işaretleniyor. Çekirdek
+  background-removal implementasyonu DEĞİŞMEDİ, Gain başlatılmadı.
 
 ## Son doğrulanan test sonucu
-`pytest` → **314 passed, 0 failed, 0 skipped** (2026-07-15; 254 önceki +
-60 yeni Sprint 4A testi). Gerçek dosya entegrasyon testleri çalıştı
+`pytest` → **328 passed, 0 failed, 0 skipped** (2026-07-16; 314 önceki +
+14 yeni Sprint 4A.1 testi). Gerçek dosya entegrasyon testleri çalıştı
 (skip edilmedi). Detay: [[07_VALIDATION/Test_Results]].
 
 ## Aktif dataset
@@ -187,6 +198,12 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   adayın removed component'i yüksek mekânsal koherans gösteriyor (0.83-
   1.0), yani her aday, gerçek uzun/yatay bir yansımayı bastırma riski
   taşıyor. Bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+- **(Sprint 4A.1'de bulundu, 2026-07-16)** Paired-control sentetik deneyi:
+  tüm 8 adayın `paired_control_long_target_retention` değeri ≈
+  0.00007-0.017 — yani hiçbir aday uzun bir sentetik hedefi korumuyor,
+  `overall_rms_retention_tendency` (0.62-0.77) bu riski GİZLİYORDU. A1/A2
+  bu çelişkiyi (`CONFLICT`) tetikliyor. Bu bir kod hatası değil, bilimsel
+  bir bulgu.
 - Detay: [[01_PROJECT_STATE/04_Risks_and_Limitations]]
 
 ## Kesinlikle yapılmaması gerekenler
@@ -202,9 +219,12 @@ Detay: [[04_DATASETS/Swath003_Array02]].
 Tam liste: proje kökündeki `CLAUDE.md`.
 
 ## Bir sonraki görev
-Bir kod görevi DEĞİL: **`BACKGROUND_DECISION_PANEL.png` ve
-`BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin insan/jeofizik incelemesi**
-(bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin
+Bir kod görevi DEĞİL: **ortak-scale output/removed B-scan montajlarının
+ve düzeltilmiş paired-control metriklerinin insan incelemesi**
+(`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_
+COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`,
+`BACKGROUND_FINAL_DECISION_REQUIRED.md` — bkz.
+[[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin
 (veya hiçbirinin) canonical seçilmesi, tek başına, Gain'i otomatik olarak
 BAŞLATMAZ.
 

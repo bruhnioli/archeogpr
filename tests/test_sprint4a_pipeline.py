@@ -135,28 +135,37 @@ def test_run_all_sprint4a_candidates_synthetic_end_to_end(dataset_factory, tmp_p
     final_decision_text = result["final_decision_path"].read_text(encoding="utf-8")
     assert "No background-removal candidate has been selected as canonical" in final_decision_text
     assert "Gain has not been started" in final_decision_text
-    # Spec section 20's exact required column set.
+    # Sprint 4A.1 correction's exact required column set (spec section 8).
     for column in (
         "Candidate",
         "Method",
         "Requested window",
-        "Applied window traces",
-        "Applied window metres",
+        "Applied trace count",
+        "Nominal window length",
+        "Center-to-center spatial span",
         "Background suppression",
-        "Long-horizontal-event preservation",
-        "Localized-event preservation",
+        "Overall RMS retention",
         "Waveform correlation",
-        "RMS retention",
         "Spectral retention",
-        "Adjacent-trace correlation",
-        "Removed-component coherence",
-        "Removed/input energy",
+        "Local-event amplitude retention",
+        "Paired-control short-target retention",
+        "Paired-control long-target retention",
+        "Removed coherent-event risk proxy",
         "Padding safety",
         "Timing preservation",
-        "Engineering category",
+        "Engineering interpretation",
         "Main risk",
     ):
         assert column in final_decision_text
+    # Required disclaimer lines (Sprint 4A.1 spec section 8).
+    assert (
+        "Overall RMS retention is not equivalent to archaeological-target preservation" in final_decision_text
+    )
+    assert "not a direct signal/noise classifier" in final_decision_text
+    assert "common-scale B-scans" in final_decision_text
+    # The old, removed "preservation fraction" framing must never reappear.
+    assert "Long-horizontal-event preservation" not in final_decision_text
+    assert "Localized-event preservation" not in final_decision_text
 
     for info in result["candidates"]:
         candidate_dir = info["output_dir"]

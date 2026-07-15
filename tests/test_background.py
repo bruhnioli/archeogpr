@@ -192,6 +192,26 @@ def test_window_m_converted_to_traces_via_metadata_sampling_step(dataset_factory
     assert result.diagnostics["applied_window_m"] == pytest.approx(11 * 0.2)
 
 
+def test_nominal_length_and_center_to_center_span_are_distinct_and_correct(dataset_factory):
+    # Sprint 4A.1 correction: "applied_window_m" (= nominal length = trace
+    # count * spacing) is NOT the window's physical center-to-center span
+    # (= (trace count - 1) * spacing). Exact worked example from ADR-008.
+    ds = _long_profile(dataset_factory, slices_count=41, samples_count=5)
+    result = remove_background(ds, method="sliding_mean", window_traces=13, trace_spacing_m=0.04)
+    diag = result.diagnostics
+    assert diag["applied_window_traces"] == 13
+    assert diag["applied_window_nominal_length_m"] == pytest.approx(0.52)
+    assert diag["applied_window_center_to_center_span_m"] == pytest.approx(0.48)
+    assert diag["window_half_span_m"] == pytest.approx(0.24)
+    # The legacy field is kept for backward compatibility and is numerically
+    # identical to the nominal length -- never the center-to-center span.
+    assert diag["applied_window_m"] == pytest.approx(diag["applied_window_nominal_length_m"])
+    assert diag["applied_window_m"] != pytest.approx(diag["applied_window_center_to_center_span_m"])
+    assert "deprecated" in diag["applied_window_m_deprecated_note"].lower() or (
+        "ambiguous" in diag["applied_window_m_deprecated_note"].lower()
+    )
+
+
 def test_requested_and_applied_window_recorded_separately(dataset_factory):
     ds = _long_profile(dataset_factory, slices_count=41, samples_count=5)
     result = remove_background(ds, method="sliding_mean", window_traces=8)

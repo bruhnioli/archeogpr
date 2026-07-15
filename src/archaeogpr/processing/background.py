@@ -215,6 +215,18 @@ def remove_background(
     window under 3 traces or wider than the profile itself, a
     ``background_removal`` already present in ``dataset.processing_history``
     (unless ``allow_reprocessing=True``), or NaN/Inf output.
+
+    ``diagnostics["applied_window_m"]`` is kept only for backward
+    compatibility and is ambiguous -- it equals ``applied_window_traces *
+    trace_spacing_m`` (a "nominal length"), which is NOT the window's
+    physical center-to-center span. Prefer the explicit, unambiguous
+    fields instead: ``applied_window_nominal_length_m`` (same value,
+    clearly named), ``applied_window_center_to_center_span_m`` (``=
+    (applied_window_traces - 1) * trace_spacing_m``, the actual distance
+    between the window's first and last trace), and ``window_half_span_m``
+    (``= center_to_center_span_m / 2``). See ADR-008 (Sprint 4A.1
+    correction) -- ``applied_window_m`` must not be presented as a
+    physical span in human-decision reports.
     """
     if method not in _METHODS:
         raise ProcessingError(f"method must be one of {_METHODS}, got {method!r}")
@@ -245,6 +257,9 @@ def remove_background(
     raw_window_traces_float: float | None = None
     applied_window_traces: int | None = None
     applied_window_m: float | None = None
+    applied_window_nominal_length_m: float | None = None
+    applied_window_center_to_center_span_m: float | None = None
+    window_half_span_m: float | None = None
     rounding_policy: str | None = None
 
     if not is_global:
@@ -309,7 +324,16 @@ def remove_background(
                 f"({slices_count} traces) -- reduce window_m/window_traces"
             )
         if spacing_info.get("trace_spacing_m") is not None:
-            applied_window_m = applied_window_traces * spacing_info["trace_spacing_m"]
+            trace_spacing_m_value = spacing_info["trace_spacing_m"]
+            # "applied_window_m" (below) is ambiguous and kept only for
+            # backward compatibility -- it is numerically identical to
+            # "nominal length" (trace count * spacing), which is NOT the
+            # same thing as the window's physical center-to-center span
+            # (Sprint 4A.1 correction; see ADR-008). Report both explicitly.
+            applied_window_m = applied_window_traces * trace_spacing_m_value
+            applied_window_nominal_length_m = applied_window_traces * trace_spacing_m_value
+            applied_window_center_to_center_span_m = (applied_window_traces - 1) * trace_spacing_m_value
+            window_half_span_m = ((applied_window_traces - 1) / 2) * trace_spacing_m_value
     else:
         # Global methods have no window, but trace spacing is still useful
         # QC context (e.g. trace_spacing_and_window.json is written per
@@ -391,6 +415,17 @@ def remove_background(
         "raw_window_traces_float": raw_window_traces_float,
         "applied_window_traces": applied_window_traces if not is_global else None,
         "applied_window_m": applied_window_m,
+        "applied_window_m_deprecated_note": (
+            "'applied_window_m' is ambiguous and kept only for backward compatibility -- it is "
+            "numerically identical to 'applied_window_nominal_length_m' (trace count * trace "
+            "spacing), which is NOT the window's physical center-to-center span. Use "
+            "'applied_window_nominal_length_m'/'applied_window_center_to_center_span_m'/"
+            "'window_half_span_m' explicitly instead; do not present 'applied_window_m' as a "
+            "physical span in new human-decision reports (see ADR-008, Sprint 4A.1)."
+        ),
+        "applied_window_nominal_length_m": applied_window_nominal_length_m,
+        "applied_window_center_to_center_span_m": applied_window_center_to_center_span_m,
+        "window_half_span_m": window_half_span_m,
         "rounding_policy": rounding_policy if rounding_policy is not None else "not_applicable",
         "trace_spacing": spacing_info,
         "removed_component_statistics": {

@@ -19,7 +19,16 @@ aday otomatik olarak canonical seçilmedi** — bkz.
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
 `outputs/sprint04a/`.
 
-**Next action: Human geophysical review of BACKGROUND_DECISION_PANEL.png and BACKGROUND_FINAL_DECISION_REQUIRED.md.**
+**Sprint 4A.1 düzeltmesi (2026-07-16):** karar QC'sindeki üç kusur
+(pencere terminolojisi, bağımsız-ölçekli B-scan'ler, `1 - coherence`
+"preservation" çerçevesi) düzeltildi ve YENİ bir paired-control sentetik
+hedef-retention deneyi eklendi — bu deney, RMS-bazlı "preservation-
+favoring" etiketinin (A1/A2) gerçekte uzun sentetik hedefleri neredeyse
+tamamen yok ettiğini (`paired_control_long_target_retention` ≈
+0.00007-0.01) ortaya çıkardı. Bkz.
+[[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.1" bölümü.
+
+**Next action: Human review of common-scale output/removed B-scan montages and corrected paired-control metrics.**
 
 8 adaydan birinin (veya hiçbirinin) canonical seçilmesi, tek başına, bir
 sonraki sprinti (Gain veya başka bir işlem) BAŞLATMAZ — bu proje hiçbir
@@ -28,11 +37,16 @@ başka bir kapsam) henüz TANIMLANMADI ve kullanıcının kendi açık isteği
 olmadan BAŞLATILMAYACAK.**
 
 Detay: [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
-`outputs/sprint04a/BACKGROUND_DECISION_PANEL.png`,
-`outputs/sprint04a/BACKGROUND_DECISION_PANEL_DETAIL.png`,
+`outputs/sprint04a/BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
+`outputs/sprint04a/BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`,
+`outputs/sprint04a/BACKGROUND_METRICS_SUMMARY.png`,
 `outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md`,
+`outputs/sprint04a/background_candidates/comparison/
+paired_control_target_attenuation.csv`,
 `outputs/sprint04a/background_candidates/comparison/BACKGROUND_REVIEW_REQUIRED.md`,
-[[02_SPRINTS/Sprint_04A_Background_Removal]].
+[[02_SPRINTS/Sprint_04A_Background_Removal]]. `BACKGROUND_DECISION_
+PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor ama artık asıl
+karar dosyaları DEĞİL.
 
 ---
 
@@ -62,6 +76,10 @@ isteğiyle netleşecektir.
   gerçek uzun bir yansıma yok" şeklinde yorumlamak — bu yalnızca bir risk
   göstergesidir, bir sonuç değildir (bkz.
   [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
+- `overall_rms_retention_tendency`'nin yüksek olmasını arkeolojik-hedef
+  koruması ile eşdeğer saymak — Sprint 4A.1'in paired-control deneyi bu
+  veri setinde tam tersini gösterdi (A1/A2 yüksek RMS retention ama
+  paired-control uzun-hedef retention ≈ 0).
 - Herhangi bir anomali/arkeolojik yorum yapmak.
 
 ## İlgili notlar

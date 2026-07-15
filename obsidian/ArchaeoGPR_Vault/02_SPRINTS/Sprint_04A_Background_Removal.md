@@ -12,6 +12,21 @@ completed:
 > **İnsan/jeofizik incelemesi bekleniyor.** Bu sprint hiçbir background-
 > removal adayını canonical seçmedi ve gain'i başlatmadı. Sonraki adım:
 > [[01_PROJECT_STATE/02_Next_Development_Sprint]]'teki `Next action`.
+>
+> **Sprint 4A.1 düzeltmesi (2026-07-16, PR #1 üzerinde):** karar QC'sindeki
+> üç kusur düzeltildi — (1) pencere uzunluğu terminolojisi (`applied_
+> window_m` fiziksel bir açıklık DEĞİLDİ, nominal length'ti); (2) karar
+> B-scan'leri her aday için ayrı percentile scale kullanıyordu (görsel
+> karşılaştırma anlamsızdı); (3) `long_horizontal_event_preservation = 1 -
+> removed_component_coherence` bir "preservation fraction" gibi
+> sunuluyordu (yanıltıcı). Yeni bir **paired-control sentetik hedef-
+> retention deneyi** eklendi ve **kritik bir bulgu ortaya çıkardı**: A1/A2
+> (yüksek `overall_rms_retention_tendency` ile "preservation-favoring"
+> etiketlenmiş) gerçekte uzun sentetik hedefleri neredeyse tamamen yok
+> ediyor (`paired_control_long_target_retention` ≈ 0.0097 / 0.0000676) —
+> bu çelişki artık `Engineering interpretation` kolonunda açıkça
+> `CONFLICT` olarak işaretleniyor. Detay: aşağıdaki "Sprint 4A.1" bölümü,
+> [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
 ## Goal
 Yeni bir arka-plan-çıkarma (background removal) mühendislik kararı
@@ -100,6 +115,12 @@ order=4, zero-phase). Bkz. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]].
   karşılaştırma klasörü + üst düzey karar paneli/rapor).
 - [x] Programatik + görsel QC denetimi.
 - [x] ADR-008 + Obsidian vault senkronizasyonu (bu not dahil).
+- [x] **Sprint 4A.1 (PR #1 üzerinde):** pencere terminolojisi düzeltmesi,
+  ortak-scale B-scan montajları (3 yeni dosya), paired-control sentetik
+  hedef-retention deneyi (YENİ), engineering category yeniden adlandırma
+  + çelişki bayrağı, `1 - coherence` "preservation" çerçevesinin
+  kaldırılması, nihai karar tablosunun 18 kolonla yeniden yazılması, 14
+  yeni test, gerçek CLI yeniden çalıştırma (tüm hash'ler değişmedi).
 
 ## Acceptance Criteria
 Girdi/ham dosya/Sprint 2/Sprint 3 canonical hash'leri değişmedi · girdi
@@ -141,28 +162,33 @@ açılabiliyor. Hepsi **PASS**.
   (16/16 Sprint 4A testi + 314/314 toplam).
 
 ## Validation Results
-- 314/314 test geçti (254 önceki hiç bozulmadı + 60 yeni: 44
-  `test_background.py`, 11 `test_background_qc.py`, 3
-  `test_sprint4a_pipeline.py`, 2 `test_sprint4a_real_integration.py`).
-- `ruff format .`: 65 dosya (temiz). `ruff check .`: `All checks passed!`.
+- **Sprint 4A.1 sonrası: 328/328 test geçti** (314 önceki hiç bozulmadı +
+  14 yeni: 1 `test_background.py`, 13 yeni `tests/
+  test_sprint4a_candidates.py`).
+- `ruff format .`: 66 dosya (temiz). `ruff check .`: `All checks passed!`.
   `mypy src/archaeogpr`: `Success: no issues found in 39 source files`.
 - Gerçek veri: 8/8 aday NPZ'si doğrulandı (shape `(175,11,1024)`, float32,
   NaN/Inf yok, padding tam sıfır hem çıktıda hem removed component'te,
   işleme geçmişi tam olarak `[..., background_removal]`).
 - Ham dosya hash'i (`66d840c3...b62a6`), Sprint 2 canonical hash'i
   (`b2770b5c...af5afe`) ve Sprint 3 canonical hash'i
-  (`2044dd8f...82fd026`) hepsi komut öncesi/sonrası değişmedi.
+  (`2044dd8f...82fd026`) hepsi Sprint 4A.1 çalıştırması öncesi/sonrası da
+  değişmedi (deterministik yeniden hesaplama, aynı girdi).
 - Tam detay: [[07_VALIDATION/Test_Results]], [[07_VALIDATION/QC_Output_Validation]].
 
 ## Generated Outputs
 `outputs/sprint04a/` (repository'de, vault dışı): `BACKGROUND_DECISION_
-PANEL.png`, `BACKGROUND_DECISION_PANEL_DETAIL.png`,
-`BACKGROUND_FINAL_DECISION_REQUIRED.md`,
-`background_candidates/{A1_global_mean,...,A8_sliding_median_150m}/` (her
-biri 18 dosya: NPZ, 6 JSON, 10 PNG, `candidate_validation.json`),
-`background_candidates/comparison/` (19 dosya: karşılaştırma PNG'leri,
-synthetic risk deneyi çıktıları, 3 CSV, `trace_spacing_summary.json`,
-`BACKGROUND_REVIEW_REQUIRED.md`).
+PANEL.png`/`_DETAIL.png` (tarihsel uyumluluk), **`BACKGROUND_OUTPUT_
+COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_
+CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png` (Sprint 4A.1, insan
+incelemesi için asıl dosyalar)**, `BACKGROUND_FINAL_DECISION_REQUIRED.md`
+(18 kolon), `background_candidates/{A1_global_mean,...,
+A8_sliding_median_150m}/` (her biri 18 dosya: NPZ, 6 JSON, 10 PNG,
+`candidate_validation.json`), `background_candidates/comparison/` (22
+dosya: karşılaştırma PNG'leri, synthetic + **paired-control (YENİ)** risk
+deneyi çıktıları, 4 CSV, `trace_spacing_summary.json`,
+`BACKGROUND_REVIEW_REQUIRED.md`; eski dosya adlarına ait 3 stale dosya
+Sprint 4A.1'de temizlendi).
 
 ## Issues Discovered
 Geliştirme sırasında kendi kendime bulunan ve düzeltilen boşluklar (kod
@@ -191,11 +217,97 @@ hiçbir zaman canonical/paylaşılan bir dala commit edilmeden düzeltildi):
    tüm hash'ler değişmeden kaldı (aynı girdi, deterministik yeniden
    hesaplama).
 
+## Sprint 4A.1 — Background Decision QC Correction (2026-07-16)
+PR #1 üzerinde, çekirdek background-removal implementasyonunu (4 yöntem,
+8 aday) değiştirmeden, insan/jeofizik kararını etkileyen QC/raporlama
+kusurlarını düzeltir. Yeni bir filtre yöntemi geliştirilmedi, Gain'e
+başlanmadı, `main`'e doğrudan commit atılmadı.
+
+**Düzeltilen kusurlar:**
+1. **Pencere terminolojisi:** `applied_window_m` (= `applied_window_
+   traces * trace_spacing_m`, bir "nominal length") fiziksel bir merkez-
+   merkez açıklık gibi sunuluyordu. Artık ayrı, açık alanlar var:
+   `applied_window_nominal_length_m`, `applied_window_center_to_center_
+   span_m` (`= (applied_window_traces - 1) * trace_spacing_m`),
+   `window_half_span_m`. Örnek (13 trace, dx=0.04m): nominal=0.52m,
+   center-to-center span=0.48m, half-span=0.24m. `applied_window_m`
+   backward-compat için korundu ama açıkça deprecated/ambiguous olarak
+   belgelendi ve yeni insan-karar raporlarında kullanılmıyor.
+2. **Karar B-scan'leri:** eski detail panel her aday için bağımsız
+   percentile scale kullanıyordu — görsel karşılaştırma anlamsızdı. Yeni
+   üç dosya: `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png` (input +
+   A1-A8, kanal-bazlı TEK ortak simetrik scale), `BACKGROUND_REMOVED_
+   COMPARISON_CH00_CH05_CH10.png` (A1-A8 removed component, aynı ortak-
+   scale kuralı), `BACKGROUND_METRICS_SUMMARY.png` (sadece metrik bar
+   chart paneli). Eski `BACKGROUND_DECISION_PANEL.png`/`_DETAIL.png`
+   tarihsel uyumluluk için korundu ama artık açıkça bu üç dosyaya
+   yönlendiriyor. `channelNN_all_candidates_20_100ns.png` da
+   `channelNN_median_trace_all_candidates_20_100ns.png` olarak yeniden
+   adlandırıldı (bir medyan-iz overlay'i, B-scan değil).
+3. **Paired-control sentetik hedef-retention deneyi (YENİ):** eski
+   sentetik retention hesabı hedef+background+noise'u birlikte ölçüyordu
+   (yeniden adlandırıldı: `mixed_scene_*`). Yeni yöntem: AYNI background+
+   noise realizasyonuyla bir `control` ve bir `with_target` profili
+   kurulur, her ikisi de aynı yöntem/pencereyle işlenir, ve
+   `target_after = processed_with_target - processed_control` ile SADECE
+   hedefe ait bileşen izole edilir. 5 senaryo (kısa/pencereye
+   yakın/uzun/hiperbol-benzeri lokalize/uzun-yatay) × sliding_mean/
+   sliding_median + global_mean/global_median (yalnızca uzun-yatay).
+   **Kritik bulgu:** bu veri setinde TÜM 8 aday, uzun bir sentetik hedefi
+   neredeyse tamamen yok ediyor (`paired_control_long_target_retention`
+   ≈ 0.00006-0.017, A1-A8 arası) — RMS-bazlı "preservation-favoring"
+   etiketi bu riski GİZLİYORDU.
+4. **Engineering category yeniden adlandırıldı:** RMS-bazlı sıralama artık
+   `overall_rms_retention_tendency` olarak açıkça raporlanıyor (yalnızca
+   bu metriğe dayandığı belirtilerek); `paired_control_short_target_
+   retention`, `paired_control_long_target_retention`,
+   `local_event_amplitude_retention`, `removed_coherent_event_risk_proxy`,
+   `background_suppression`, `waveform_correlation`, `spectral_retention`
+   ayrı metrikler olarak raporlanıyor. Yeni `Engineering interpretation`
+   metni, `overall_rms_retention_tendency`'nin "preservation-favoring"
+   dediği ama `paired_control_long_target_retention`'ın düşük çıktığı
+   (< 0.3) her adayda açık bir `CONFLICT` uyarısı basıyor — A1 ve A2 için
+   gerçek veride bu çelişki tetiklendi.
+5. **`1 - coherence` "preservation" çerçevesi kaldırıldı:**
+   `long_horizontal_event_preservation = max(0, 1 -
+   removed_component_coherence)` insan-karar tablosundan kaldırıldı.
+   Yerine `removed_coherent_event_risk_proxy` = ham `removed_component_
+   coherence` DOĞRUDAN raporlanıyor, açık bir uyarıyla: yüksek değer
+   removed component'in mekânsal sürekli olduğunu gösterir, bunun
+   unwanted background mı gerçek yansıma mı olduğunu BELİRLEMEZ, bir
+   preservation yüzdesi DEĞİLDİR, arkeolojik bir iddia DEĞİLDİR.
+
+**Nihai karar tablosu** (`BACKGROUND_FINAL_DECISION_REQUIRED.md`) artık 18
+kolon: Candidate, Method, Requested window, Applied trace count, Nominal
+window length, Center-to-center spatial span, Background suppression,
+Overall RMS retention, Waveform correlation, Spectral retention,
+Local-event amplitude retention, Paired-control short-target retention,
+Paired-control long-target retention, Removed coherent-event risk proxy,
+Padding safety, Timing preservation, Engineering interpretation, Main risk.
+Açık uyarı satırları: no candidate canonical, gain not started, "overall
+RMS retention is not equivalent to archaeological-target preservation",
+"removed-component coherence ... is not a direct signal/noise classifier",
+"human review requires common-scale B-scans".
+
+**Testler:** 14 yeni test eklendi (`test_background.py`'de 1 — nominal
+length vs center-to-center span aritmetiği; yeni `tests/
+test_sprint4a_candidates.py`'de 13 — ortak-scale montaj testleri,
+paired-control izolasyon/pencere-uzunluğu/hiperbol/mean-vs-median
+testleri, nihai rapor doğruluğu, çelişki-bayrağı testi). Mevcut 314 test
+hiç bozulmadı — toplam **328/328 passed**.
+
+**Gerçek CLI yeniden çalıştırıldı** (`outputs/sprint04a/`) — tüm hash'ler
+(ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical) değişmeden kaldı,
+aynı deterministik girdi/çıktı.
+
 ## Decisions
 Bu sprintte hiçbir background-removal adayı canonical seçilmedi (kural
 gereği — bkz. CLAUDE.md, ADR-008). ADR-008 kanal-bazlı politika,
 window-length riski, mean-vs-median farkı, ve trace-spacing önceliğini
-mimari karar olarak kayda geçirir; bir aday SEÇMEZ.
+mimari karar olarak kayda geçirir; bir aday SEÇMEZ. Sprint 4A.1, ADR-008'e
+nominal-length-vs-span, paired-control target retention, common-scale
+görsel karşılaştırma, ve removed-coherence'ın preservation olmadığı
+notlarını ekler — yeni bir karar EKLEMEZ.
 
 ## Completion Summary
 Dört background-removal yöntemi bilimsel olarak implemente edildi, 8 aday
@@ -205,10 +317,12 @@ deneyi çalıştırıldı, ve tam bir karar paketi (panel + rapor) üretildi.
 Hiçbir aday canonical seçilmedi, gain başlatılmadı. Status: `review_required`.
 
 ## Next Sprint Recommendation
-Bir kod görevi DEĞİL: **kullanıcının kendi açık isteğiyle** bu sprintin
-8 adayından birini (veya hiçbirini) canonical seçmesi — bkz.
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]. Bu karardan sonra da
-Gain otomatik olarak BAŞLAMAZ.
+Bir kod görevi DEĞİL: **Human review of common-scale output/removed
+B-scan montages and corrected paired-control metrics** — bkz.
+[[01_PROJECT_STATE/02_Next_Development_Sprint]]. Kullanıcının kendi açık
+isteğiyle bu sprintin 8 adayından birini (veya hiçbirini) canonical
+seçmesi hâlâ gerekiyor; bu karardan sonra da Gain otomatik olarak
+BAŞLAMAZ.
 
 ## Related Notes
 [[Sprint_Index]], [[Sprint_03_Dewow_Bandpass]],

@@ -8,6 +8,69 @@ tags: [validation]
 Gerçek `pytest` terminal çıktıları, tarih sırasıyla (en yeni en üstte).
 Başarısız testler gizlenmez — şu ana kadar başarısız test kaydı yoktur.
 
+## 2026-07-16 (Sprint 4A.1 — Background Decision QC Correction, PR #1)
+
+Command:
+```bash
+pytest -q
+```
+
+Result:
+```text
+........................................................................ [ 21%]
+........................................................................ [ 43%]
+........................................................................ [ 65%]
+........................................................................ [ 87%]
+........................................                                 [100%]
+328 passed in 317.56s (0:05:17)
+```
+
+314 önceki test hiç bozulmadı; 14 yeni Sprint 4A.1 testi eklendi ve geçti:
+`tests/test_background.py` (+1:
+`test_nominal_length_and_center_to_center_span_are_distinct_and_correct`
+— 13 trace/0.04m spacing örneğinde nominal=0.52m, span=0.48m,
+half-span=0.24m tam olarak doğrulandı), yeni `tests/
+test_sprint4a_candidates.py` (13: ortak-scale output/removed montaj
+testleri — `Figure.savefig` spy'ı ile bir aday 50x/1000x ölçeklendiğinde
+bile tüm panellerin AYNI `(vmin,vmax)` paylaştığı doğrulandı; channel
+0/5/10 gerçekten üretiliyor; paired-control izolasyon testleri —
+`target_amplitude=0` ile `with_target==control` tam olarak, retention
+metrikleri nan'a guard'lanıyor (crash yok); background+noise hedef
+dışında tam olarak sıfıra iptal oluyor; uzun hedef aynı pencerede kısa
+hedeften daha fazla attenuate oluyor (hem mean hem median); lokalize
+hiperbol-benzeri hedef uzun-yatay hedeften daha iyi korunuyor; mean ve
+median paired-control sonuçları ayrışabiliyor; nihai rapor testleri —
+`1 - coherence` hiçbir zaman "preservation" olarak raporlanmıyor, ham
+coherence değeri doğru raporlanıyor, hiçbir aday canonical seçilmiyor,
+"Gain has not been started" her zaman mevcut; interpretation-notes
+testi — `overall_rms_retention_tendency` her zaman belirtiliyor,
+`CONFLICT` bayrağı yalnızca gerçekten çelişen adaylarda (A1/A2) tetikleniyor).
+
+### Diğer kalite kontrolleri (Sprint 4A.1, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 66 dosya (temiz, 2 dosya bir kez yeniden biçimlendirildi
+— yalnızca stil). `ruff check .`: `All checks passed!`. `mypy
+src/archaeogpr`: `Success: no issues found in 39 source files`.
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A.1)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı — girdi hash'i (`2044dd8f...82fd026`), ham dosya hash'i
+(`66d840c3...b62a6`), Sprint 2 canonical hash'i (`b2770b5c...af5afe`)
+hepsi ÖNCEKİ Sprint 4A çalıştırmasıyla bit-bazında özdeş (deterministik
+yeniden hesaplama). Yeni dosyalar programatik olarak denetlendi:
+`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_
+COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png` (tüm
+finite piksel), `paired_control_target_attenuation.csv` (12 satır, 11
+kolon), `candidate_metrics.csv` (8 yeni kolon dahil doğrulandı). 3 eski
+dosya adı (`channelNN_all_candidates_20_100ns.png`, yeniden adlandırılan
+öncesi) stale olarak temizlendi. Tam detay: [[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
 ## 2026-07-15 (Sprint 4A — Background Removal Candidate Development & Geophysical QC)
 
 Command:

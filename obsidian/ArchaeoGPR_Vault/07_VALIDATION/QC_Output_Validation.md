@@ -570,6 +570,59 @@ JSON'lar `json.loads()` ile geçerli, tüm CSV'ler `pandas` ile okundu
 (satır sayıları doğrulandı), tüm PNG'ler `matplotlib.image.imread()` ile
 açıldı ve tüm pikseller finite.
 
+---
+
+# Sprint 4A.1 — Background Decision QC Correction Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (aynı komut, düzeltilmiş kod). Girdi
+NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2 canonical NPZ hash'i ÖNCEKİ
+Sprint 4A çalıştırmasıyla bit-bazında özdeş kaldı (deterministik).
+
+## Üç yeni üst düzey dosya (asıl karar dosyaları)
+- `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`: 3 kanal × 9 panel
+  (input + A1-A8), her kanal satırı TEK ortak simetrik scale kullanıyor.
+  Görsel olarak doğrulandı: ch00'da input güçlü doğrudan-dalga bandıyla
+  (±987 clip) satırın diğer 8 paneline göre çok daha yoğun görünüyor —
+  ortak scale'in gerçekten çalıştığının kanıtı (her panel kendi ölçeğine
+  normalize edilseydi hepsi "temiz" görünürdü).
+- `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`: 3 kanal × 8 panel
+  (A1-A8 removed component), aynı ortak-scale kuralı. Görsel olarak
+  doğrulandı: A1/A2 (global) tamamen yatay/düz removed component
+  gösteriyor (beklenen — global background, tüm profilde tek değer);
+  A3-A8 (sliding) görünür şekilde daha dokulu/mekânsal değişken.
+- `BACKGROUND_METRICS_SUMMARY.png`: 8 panelli bar chart (yalnızca metrik,
+  B-scan yok). **Kritik gözlem:** `paired_control_long_target_retention`
+  paneli tüm 8 adayda ≈0 (0.00006-0.017 aralığında) gösteriyor —
+  `overall_rms_retention_tendency` panelinin (0.62-0.77) tam tersi bir
+  görsel izlenim veriyor, bu da RMS-bazlı tek metriğin yeterli olmadığını
+  doğrudan görsel olarak kanıtlıyor.
+
+## `BACKGROUND_FINAL_DECISION_REQUIRED.md` (18 kolon)
+Tüm 18 zorunlu kolon + 5 uyarı satırı programatik olarak doğrulandı.
+`Engineering interpretation` kolonunda A1 ve A2 için `CONFLICT` metni
+görüldü (`paired_control_long_target_retention`=0.00967/0.0000676,
+`overall_rms_retention_tendency`=0.772/0.774) — beklenen ve doğru.
+`Long-horizontal-event preservation`, `Localized-event preservation`,
+`1 - removed_component_coherence` ifadeleri metinde YOK — doğrulandı.
+
+## `background_candidates/comparison/` (22 dosya, güncellenmiş)
+`paired_control_target_attenuation.csv` (12 satır, 11 kolon: method,
+scenario, target_length_traces, window_traces, + 7 retention metriği) ve
+`paired_control_window_length_vs_target_attenuation.png` (yeni) eklendi.
+`channelNN_all_candidates_20_100ns.png` (3 dosya, eski isim) stale olarak
+tespit edildi (yeniden adlandırılmış `channelNN_median_trace_all_
+candidates_20_100ns.png`'nin öncesinden kalan, artık kod tarafından hiç
+yazılmıyor) ve temizlendi.
+
+## Programatik denetim (Sprint 4A.1)
+`candidate_metrics.csv`: 8 yeni kolon doğrulandı
+(`applied_window_nominal_length_m`, `applied_window_center_to_center_
+span_m`, `window_half_span_m`, `overall_rms_retention_tendency`,
+`removed_coherent_event_risk_proxy_w5`, `paired_control_short_target_
+retention`, `paired_control_long_target_retention`, `engineering_
+interpretation`). Tüm PNG'ler finite piksellerle açıldı. Tüm CSV'ler
+`pandas` ile okundu.
+
 ## İlgili notlar
 [[Test_Results]], [[Parser_Validation]], [[04_DATASETS/Swath003_Array02]],
 [[Sprint_02_TimeZero_DCOffset]], [[Sprint_02_1_TimeZero_DCOffset_Review]],

@@ -41,7 +41,15 @@ def write_removed_component_metrics_json(
 
 
 def write_trace_spacing_and_window_json(result: ProcessingResult, output_path: str | Path) -> Path:
-    """Save this candidate's own trace-spacing/window diagnostics (from ``result.diagnostics``)."""
+    """Save this candidate's own trace-spacing/window diagnostics (from ``result.diagnostics``).
+
+    Reports both the legacy, ambiguous ``applied_window_m`` (kept only for
+    backward compatibility -- see its own ``applied_window_m_deprecated_
+    note``) and the explicit, unambiguous fields introduced in Sprint 4A.1:
+    ``applied_window_nominal_length_m`` (identical value, clearly named),
+    ``applied_window_center_to_center_span_m`` (the window's actual
+    first-to-last-trace physical distance), and ``window_half_span_m``.
+    """
     diag = result.diagnostics
     report = {
         "method": diag["method"],
@@ -51,6 +59,10 @@ def write_trace_spacing_and_window_json(result: ProcessingResult, output_path: s
         "raw_window_traces_float": diag["raw_window_traces_float"],
         "applied_window_traces": diag["applied_window_traces"],
         "applied_window_m": diag["applied_window_m"],
+        "applied_window_m_deprecated_note": diag["applied_window_m_deprecated_note"],
+        "applied_window_nominal_length_m": diag["applied_window_nominal_length_m"],
+        "applied_window_center_to_center_span_m": diag["applied_window_center_to_center_span_m"],
+        "window_half_span_m": diag["window_half_span_m"],
         "rounding_policy": diag["rounding_policy"],
         "trace_spacing": diag["trace_spacing"],
     }

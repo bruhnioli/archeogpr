@@ -1318,8 +1318,13 @@ def _cmd_background(args: argparse.Namespace) -> int:
     print(f"Trace spacing: {diag['trace_spacing']}")
     if diag["applied_window_traces"] is None:
         print("Applied window: not applicable (global method)")
-    elif diag["applied_window_m"] is not None:
-        print(f"Applied window: {diag['applied_window_traces']} traces ({diag['applied_window_m']:.4g} m)")
+    elif diag["applied_window_nominal_length_m"] is not None:
+        print(
+            f"Applied window: {diag['applied_window_traces']} traces "
+            f"(nominal length {diag['applied_window_nominal_length_m']:.4g} m, "
+            f"center-to-center span {diag['applied_window_center_to_center_span_m']:.4g} m, "
+            f"half-span {diag['window_half_span_m']:.4g} m)"
+        )
     else:
         print(f"Applied window: {diag['applied_window_traces']} traces (metres unknown -- no trace spacing)")
     print(f"Removed-component statistics: {diag['removed_component_statistics']}")
@@ -1363,8 +1368,11 @@ def _cmd_sprint4a_candidates(args: argparse.Namespace) -> int:
     print(f"Sprint 2 canonical NPZ hash: {result['sprint2_canonical_sha256']}")
     print(f"Sprint 3 canonical NPZ hash unchanged: {result['input_hash_unchanged']}")
     print(f"Output directory: {args.output_dir}")
-    print(f"Decision panel: {result['decision_panel_path']}")
-    print(f"Decision panel (detail): {result['decision_panel_detail_path']}")
+    print(f"Decision panel (historical compatibility only): {result['decision_panel_path']}")
+    print(f"Decision panel detail (historical compatibility only): {result['decision_panel_detail_path']}")
+    print(f"Common-scale output comparison (ch00/05/10): {result['output_comparison_path']}")
+    print(f"Common-scale removed comparison (ch00/05/10): {result['removed_comparison_path']}")
+    print(f"Metrics summary panel: {result['metrics_summary_path']}")
     print(f"Final decision file: {result['final_decision_path']}")
     after_hash = file_sha256(args.input)
     print(f"Input file hash unchanged: {before_hash == after_hash}")

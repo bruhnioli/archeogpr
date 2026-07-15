@@ -167,6 +167,24 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
 - 60 yeni test (toplam 314). Bkz.
   [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
+**Sprint 4A.1** (2026-07-16, PR #1 üzerinde, review_required kalır):
+- Karar QC düzeltmesi: pencere terminolojisi (`applied_window_nominal_
+  length_m` vs `_center_to_center_span_m`), ortak-scale B-scan montajları
+  (`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_
+  REMOVED_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_
+  SUMMARY.png`), `1 - coherence` "preservation" çerçevesinin kaldırılması.
+- YENİ paired-control sentetik hedef-retention deneyi
+  (`run_paired_control_target_attenuation_experiments()`) — **kritik
+  bulgu:** tüm 8 aday uzun bir sentetik hedefi neredeyse tamamen yok
+  ediyor (`paired_control_long_target_retention` ≈ 0.00007-0.017),
+  yüksek `overall_rms_retention_tendency`ye (0.62-0.77) rağmen. A1/A2
+  için `Engineering interpretation`'da açık `CONFLICT` bayrağı.
+- Çekirdek `remove_background()` implementasyonu DEĞİŞMEDİ, Gain
+  başlatılmadı, `main`'e doğrudan commit atılmadı.
+- 14 yeni test (toplam 328). Bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
+  "Sprint 4A.1 Correction" bölümü.
+
 ## Henüz uygulanmayan özellikler
 Gain, AGC, F-K filtering, migration, Hilbert envelope, depth-slice
 üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export, GUI.
@@ -205,8 +223,8 @@ korundu, sidecar notlarla süperseded olarak işaretlendi. Detay:
 [[04_DATASETS/Swath003_Array02]].
 
 ## Test durumu
-`pytest` → **314 passed, 0 failed, 0 skipped** (2026-07-15, gerçek dosya
-mevcutken çalıştırıldı: 254 önceki + 60 yeni Sprint 4A testi).
+`pytest` → **328 passed, 0 failed, 0 skipped** (2026-07-16, gerçek dosya
+mevcutken çalıştırıldı: 314 önceki + 14 yeni Sprint 4A.1 testi).
 Detay: [[07_VALIDATION/Test_Results]].
 
 ## Bilinen hatalar
@@ -267,13 +285,14 @@ Açık sorunlar (hata değil, belirsizlik/karar bekleyen konular) için
 - Sprint 4A testleri: `tests/test_background.py`,
   `tests/test_background_qc.py`, `tests/test_sprint4a_pipeline.py`,
   `tests/test_sprint4a_real_integration.py`
+- Sprint 4A.1 testleri: `tests/test_sprint4a_candidates.py` (yeni)
 - Aday konfigürasyonları: `configs/{dewow,bandpass,background}_candidates.yaml`
 - Vault: `obsidian/ArchaeoGPR_Vault/`
 
 ## Bir sonraki somut görev
-Bir kod görevi DEĞİL: **`BACKGROUND_DECISION_PANEL.png` ve
-`BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin insan/jeofizik incelemesi**
-(Sprint 4A, bkz.
+Bir kod görevi DEĞİL: **ortak-scale output/removed B-scan montajlarının
+ve düzeltilmiş paired-control metriklerinin insan incelemesi** (Sprint
+4A.1, bkz.
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
 8 adaydan birinin (veya hiçbirinin) canonical seçilmesi, tek başına,
 Gain'i AÇMAZ. Detay: [[01_PROJECT_STATE/02_Next_Development_Sprint]].

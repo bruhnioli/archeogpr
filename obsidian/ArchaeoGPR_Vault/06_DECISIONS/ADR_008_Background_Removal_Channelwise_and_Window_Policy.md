@@ -135,6 +135,82 @@ and explicitly does **not** select a canonical candidate.
     its own human/geophysical decision QC before any window/method choice
     may be treated as informative for it.
 
+## Sprint 4A.1 Correction (2026-07-16)
+
+A self-audit of the original decision QC found three defects that could
+mislead a human/geophysical reviewer without changing the underlying
+`remove_background()` implementation itself. All three are fixed on PR #1
+(`sprint-04a-background-removal`), without introducing a new filter
+method and without starting Gain.
+
+1. **Nominal window length is not a physical span.** The original
+   `applied_window_m` (`= applied_window_traces * trace_spacing_m`) was
+   presented informally as the window's physical extent. It is a
+   *nominal length*, not the window's center-to-center span
+   (`= (applied_window_traces - 1) * trace_spacing_m`). Both are now
+   reported as separate, explicitly named diagnostics fields
+   (`applied_window_nominal_length_m`, `applied_window_center_to_center_
+   span_m`, `window_half_span_m`); `applied_window_m` is kept only for
+   backward compatibility and documented as deprecated/ambiguous. Worked
+   example (13 traces, 0.04 m spacing): nominal length 0.52 m,
+   center-to-center span 0.48 m, half-span 0.24 m.
+2. **Independent per-candidate color scales made visual comparison
+   meaningless.** The original decision-panel detail view gave each
+   candidate's channel-0 B-scan its own independently computed
+   percentile clip -- a candidate that removed nearly everything and one
+   that removed nearly nothing could look identically "clean" once each
+   is auto-stretched to its own range. `save_common_scale_output_
+   comparison()`/`save_common_scale_removed_comparison()` now compute one
+   shared symmetric scale per channel row, pooling the canonical input
+   and all 8 candidates' outputs (or all 8 removed components) together
+   via `compute_shared_clip_limit()` -- no panel is normalized
+   independently. `BACKGROUND_DECISION_PANEL.png`/`_DETAIL.png` are kept
+   for historical compatibility only and now say so in their own
+   captions.
+3. **A new, target-isolated synthetic experiment: paired-control
+   retention.** The original synthetic risk experiments
+   (`run_synthetic_risk_experiments()`) measured a windowed *mixed
+   scene* (background + noise + target together) before vs. after
+   processing -- informative, but not an isolated measurement of the
+   target component alone. `run_paired_control_target_attenuation_
+   experiments()` and `compute_paired_control_retention_for_candidates()`
+   build a `control` (background + noise only) and a `with_target` run
+   from the SAME background+noise realization, process both with the
+   identical method/window, and isolate the target-attributable change
+   by subtraction (`target_after = processed_with_target -
+   processed_control`). Applied to this dataset's own 8 candidates using
+   each candidate's own method/window: **every candidate destroys a long
+   (55-trace) synthetic target almost completely**
+   (`paired_control_long_target_retention` ≈ 0.00006-0.017 across A1-A8)
+   even though several candidates show high `overall_rms_retention_
+   tendency` (0.62-0.77) -- RMS retention alone would have hidden this.
+4. **`1 - removed_component_coherence` is not a preservation fraction.**
+   The original `long_horizontal_event_preservation` proxy inverted the
+   removed component's own adjacent-trace coherence and presented it as a
+   preservation percentage. It is removed from the human-decision table.
+   `removed_coherent_event_risk_proxy` now reports the raw coherence
+   value directly, with an explicit caveat: a high value means the
+   removed component is spatially continuous, which does NOT determine
+   whether that continuity reflects unwanted common-mode background or a
+   real, laterally continuous reflection, and is not an archaeological
+   claim of any kind. The direct, target-isolated version of this same
+   risk is now the paired-control long-target retention above, not an
+   inverted coherence value.
+5. **Engineering interpretation states its own basis and flags
+   conflicts.** The RMS-based category label (`preservation-favoring`/
+   `suppression-favoring`/`balanced`/`too_aggressive`/`too_weak`) is
+   unchanged in mechanism, but is now always reported alongside the
+   literal metric it is based on (`overall_rms_retention_tendency`) and
+   six other metrics reported separately (`paired_control_short_target_
+   retention`, `paired_control_long_target_retention`, `local_event_
+   amplitude_retention`, `removed_coherent_event_risk_proxy`,
+   `background_suppression`, `waveform_correlation`, `spectral_
+   retention`). `_engineering_interpretation_notes()` flags an explicit
+   `CONFLICT` when a candidate ranked "preservation-favoring" by RMS
+   alone still strongly attenuates the paired-control long target
+   (threshold `< 0.3`, documented, not a physical claim) -- on this
+   dataset, A1 and A2 both trigger this conflict.
+
 ## Alternatives Considered
 - **Cross-channel background estimation (one shared background across all
   11 channels):** Rejected — explicitly forbidden by the Sprint 4A spec
@@ -238,13 +314,54 @@ and explicitly does **not** select a canonical candidate.
   table columns; see [[02_SPRINTS/Sprint_04A_Background_Removal]] Issues
   Discovered for the full list and fix.
 
+### Sprint 4A.1 validation (2026-07-16)
+- Worked example confirmed exactly: 13 traces, 0.04 m spacing → nominal
+  length 0.52 m, center-to-center span 0.48 m, half-span 0.24 m
+  (`tests/test_background.py::
+  test_nominal_length_and_center_to_center_span_are_distinct_and_correct`).
+- Common-scale montages confirmed via a `Figure.savefig` spy: every panel
+  in one channel row (input + A1-A8, or A1-A8 removed components) shares
+  exactly one `(vmin, vmax)` even when one candidate's amplitude is
+  deliberately scaled 50x larger or 1000x smaller than the others —
+  proving no panel is normalized independently
+  (`tests/test_sprint4a_candidates.py`, 4 tests).
+- Paired-control isolation confirmed directly: with `target_amplitude=0`,
+  `with_target` equals `control` exactly, and retention metrics are
+  guarded to `nan` rather than fabricated; outside the target's own
+  traces, `with_target - control` is exactly zero (background+noise
+  cancel exactly by construction).
+- Window-length/target-length sensitivity confirmed on real paired-control
+  data: a target longer than the sliding window retains measurably less
+  energy than a target shorter than the window (both `sliding_mean` and
+  `sliding_median`); a localized hyperbola-like target is preserved
+  measurably better than a long horizontal target within the same method.
+- On the real dataset's own 8 candidates: `paired_control_long_target_
+  retention` = A1 0.00967, A2 0.0000676, A3 0.0172, A4 0.0134, A5 0.0101,
+  A6 0.000131, A7 0.000119, A8 0.0000844 — every candidate destroys the
+  synthetic long target almost completely, regardless of
+  `overall_rms_retention_tendency` (0.62-0.77 across all 8). A1 and A2
+  (both "preservation-favoring" by RMS alone) both trigger the explicit
+  `CONFLICT` flag in `Engineering interpretation`.
+- `BACKGROUND_FINAL_DECISION_REQUIRED.md` confirmed to no longer contain
+  `Long-horizontal-event preservation`, `Localized-event preservation`,
+  or `1 - removed_component_coherence`; confirmed to contain all 18
+  required columns and the five required disclaimer lines.
+- 14 new tests (`tests/test_background.py` +1, new `tests/
+  test_sprint4a_candidates.py` +13), existing 314 tests unaffected —
+  328/328 passed. `ruff format`/`ruff check`/`mypy src` clean. Real CLI
+  re-run confirmed all three hashes (raw `.ogpr`, Sprint 2 canonical,
+  Sprint 3 canonical) unchanged.
+
 ## Related Files
 - `src/archaeogpr/processing/background.py`
 - `src/archaeogpr/qc/background.py`
 - `src/archaeogpr/export/sprint4a.py`
-- `src/archaeogpr/sprint4a_candidates.py`
+- `src/archaeogpr/sprint4a_candidates.py` (Sprint 4A.1: common-scale
+  montages, paired-control experiment, engineering interpretation,
+  corrected final decision report)
 - `src/archaeogpr/cli.py` (`background`, `sprint4a-candidates` subcommands)
 - `configs/background_candidates.yaml`
+- `tests/test_sprint4a_candidates.py` (Sprint 4A.1, new)
 - `tests/test_background.py`, `tests/test_background_qc.py`,
   `tests/test_sprint4a_pipeline.py`, `tests/test_sprint4a_real_integration.py`
 - `outputs/sprint04a/`
