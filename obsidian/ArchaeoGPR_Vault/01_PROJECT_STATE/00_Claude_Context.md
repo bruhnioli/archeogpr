@@ -19,28 +19,33 @@ altyapısı + iki temel sinyal işleme modülü (time-zero, DC offset) kuruldu.
 - `src/archaeogpr/model/` — `dataset.py` (`GPRDataset`), `_frozen.py` (paylaşılan `FrozenDict`/freeze yardımcıları)
 - `src/archaeogpr/processing/` — `common.py` (`contiguous_true_runs` dahil), `result.py` (`ProcessingResult`), `time_zero.py`, `dc_offset.py`, `dewow.py`, `bandpass.py`
 - `src/archaeogpr/qc/` — `metadata.py`, `bscan.py`, `geometry.py`, `time_zero.py`, `dc_offset.py`, `spectrum.py`, `dewow.py`, `bandpass.py`
-- `src/archaeogpr/export/` — `basic.py`, `processed.py` (Sprint 2 CSV/JSON/NPZ), `sprint3.py` (`read_processed_npz`, `load_candidates_config`, `write_padding_verification_json`)
+- `src/archaeogpr/export/` — `basic.py`, `processed.py` (Sprint 2 CSV/JSON/NPZ), `sprint3.py` (`read_processed_npz`, `load_candidates_config`, `write_padding_verification_json`), `sprint4a.py` (Sprint 4A JSON yazıcıları)
 - `src/archaeogpr/sprint3_candidates.py` — Sprint 3 aday orkestrasyonu (dewow/spektrum/band-pass/kombine + karşılaştırma + `SPRINT3_REVIEW_REQUIRED.md`)
 - `src/archaeogpr/sprint3_canonical.py` — canonical D2+B1 zinciri (`run_sprint3_canonical()`, `write_canonical_processing_note()`) — insan/jeofizik kararı, yeni filtre algoritması YOK
-- `src/archaeogpr/cli.py`, `__main__.py` — `python -m archaeogpr inspect|header|time-zero|dc-offset|sprint2|dewow|bandpass|sprint3-candidates|sprint3`
+- `src/archaeogpr/processing/background.py` — (Sprint 4A) `remove_background()` (global_mean/global_median/sliding_mean/sliding_median), `compute_trace_spacing()`
+- `src/archaeogpr/qc/background.py` — (Sprint 4A) sinyal-koruma + removed-component metrikleri, `compute_localized_event_risk()`, plotting suite
+- `src/archaeogpr/sprint4a_candidates.py` — (Sprint 4A) 8-aday orkestrasyonu, synthetic risk deneyleri, karar paneli, `BACKGROUND_FINAL_DECISION_REQUIRED.md` yazıcısı — **hiçbir aday canonical seçmez**
+- `src/archaeogpr/cli.py`, `__main__.py` — `python -m archaeogpr inspect|header|time-zero|dc-offset|sprint2|dewow|bandpass|sprint3-candidates|sprint3|background|sprint4a-candidates`
 - `configs/{dewow,bandpass}_candidates.yaml` — Sprint 3 aday tanımları
+- `configs/background_candidates.yaml` — Sprint 4A aday tanımları (A1-A8)
 - `tests/` — sentetik fixture tabanlı unit testler + gerçek dosya entegrasyon testleri
 - `obsidian/ArchaeoGPR_Vault/` — bu vault
 - Detaylı harita: [[03_ARCHITECTURE/Repository_Map]]
 
 ## Aktif sprint
-Aktif bir sprint YOK — Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]])
-ve Sprint 3.1 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her
-ikisi de **done**. Kullanıcı 2026-07-15'te insan/jeofizik kararını verdi:
-**D2** dewow + **B1** band-pass canonical seçildi (bkz.
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Canonical zincir
-(Sprint 2 canonical → D2 → B1) `outputs/sprint03/canonical_D2_B1/`'a
-yazıldı. Sprint 2/2.1/2.2 durumları da `done` (bkz.
-[[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
+**Sprint 4A** ([[02_SPRINTS/Sprint_04A_Background_Removal]]) —
+**review_required**. Dört background-removal yöntemi (global_mean/
+global_median/sliding_mean/sliding_median) implemente edildi, 8 aday
+(A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek veride
+çalıştırıldı. **Hiçbir aday canonical seçilmedi, Gain başlatılmadı** —
+bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
+([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her ikisi de
+**done** — D2 dewow + B1 band-pass canonical (bkz.
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Sprint 2/2.1/2.2
+durumları da `done` (bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
 [[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
-[[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]]). Sprint 4 hâlâ
-TANIMLANMADI — D2/B1'in canonical seçilmiş olması, tek başına, Sprint 4'ü
-otomatik olarak AÇMAZ; kullanıcının kendi açık isteği gerekir.
+[[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]]).
 
 ## Mevcut çalışan özellikler
 - Sprint 1: `.ogpr` okuyucu, `GPRDataset`, türetilmiş metadata, temel QC
@@ -69,10 +74,20 @@ otomatik olarak AÇMAZ; kullanıcının kendi açık isteği gerekir.
   band-pass canonical**. Bkz.
   [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
   `outputs/sprint03/canonical_D2_B1/`.
+- **Sprint 4A (2026-07-15, review_required):** `processing/background.py`
+  (`remove_background()` — global_mean/global_median/sliding_mean/
+  sliding_median, kanal-bazlı bağımsız, hiçbir zaman kanalları
+  birleştirmez), `qc/background.py` (sinyal-koruma + removed-component
+  metrikleri + `compute_localized_event_risk()` QC-only proxy'si),
+  `sprint4a_candidates.py` (8 aday orkestrasyonu, synthetic risk
+  deneyleri, karar paneli). `background`/`sprint4a-candidates` CLI alt
+  komutları. **Hiçbir aday canonical seçilmedi, Gain başlatılmadı.** Bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+  `outputs/sprint04a/`.
 
 ## Son doğrulanan test sonucu
-`pytest` → **254 passed, 0 failed, 0 skipped** (2026-07-15; 232 önceki +
-22 yeni canonicalization testi). Gerçek dosya entegrasyon testleri çalıştı
+`pytest` → **314 passed, 0 failed, 0 skipped** (2026-07-15; 254 önceki +
+60 yeni Sprint 4A testi). Gerçek dosya entegrasyon testleri çalıştı
 (skip edilmedi). Detay: [[07_VALIDATION/Test_Results]].
 
 ## Aktif dataset
@@ -131,6 +146,15 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   kodlandı (`sprint3_canonical.py`, yeni bir filtre algoritması YOK).
   Yalnızca `Swath003_Array02.ogpr` için canonical. Bkz.
   [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]].
+- **(Sprint 4A, 2026-07-15)** Background removal, en bilimsel açıdan
+  riskli filtre — gerçek uzun/yatay bir yansımayı ortak-mod gürültüden
+  ayırt edemez. Kanal-bazlı bağımsız hesaplama (kanallar hiçbir zaman
+  birleştirilmez); trace-spacing hiçbir zaman sabit gömülü değil
+  (geolocation → metadata → unavailable önceliği); pencere dönüşümü
+  her zaman tek sayıya yuvarlanır ve ayrı ayrı kaydedilir; edge modu
+  `reflect`/`nearest` (asla sıfır-padding). 8 aday çalıştırıldı, **hiçbiri
+  canonical seçilmedi**. Bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
 ## Bilinen riskler
 - EPSG:32632 coğrafi olarak Orta Avrupa/İtalya'yı kapsar; gerçek saha bağlamı (Marmara Ereğlisi, Türkiye) ile uyuşmuyor olabilir.
@@ -157,6 +181,12 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   DEĞİLDİR — spektral farklılıktan kaynaklanan bir ölçüm sınırlamasıdır;
   yetkili kanıt tam-segment lag'i (=0, her iki aday için). Bkz.
   `outputs/sprint03_1/PHASE_METRICS_INTERPRETATION_NOTES.md`.
+- **(Sprint 4A'da açık, karar bekleyen konu)** 8 background-removal
+  adayından hangisinin (varsa) canonical seçileceği henüz karar
+  verilmedi — bu proje bu seçimi otomatik yapmaz. Bu veri setinde tüm 8
+  adayın removed component'i yüksek mekânsal koherans gösteriyor (0.83-
+  1.0), yani her aday, gerçek uzun/yatay bir yansımayı bastırma riski
+  taşıyor. Bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 - Detay: [[01_PROJECT_STATE/04_Risks_and_Limitations]]
 
 ## Kesinlikle yapılmaması gerekenler
@@ -164,19 +194,23 @@ Detay: [[04_DATASETS/Swath003_Array02]].
 - Binary offset'leri koda sabit gömme.
 - CRS bilgisini doğrulanmış kabul etme veya otomatik reproject etme.
 - Otomatik time-zero pick'ini doğrulanmış fiziksel yüzey zamanı olarak sunma.
-- Sprint kapsamı dışındaki işlem algoritmalarını (background removal, gain, migration, F-K, vb.) uygulama.
-- Bir dewow veya band-pass adayını OTOMATİK olarak canonical seçme.
+- Sprint kapsamı dışındaki işlem algoritmalarını (gain, migration, F-K, PCA/SVD background removal, vb.) uygulama.
+- Bir dewow, band-pass, veya background-removal adayını OTOMATİK olarak canonical seçme.
 - Tamamlanmamış özellikleri tamamlanmış gibi gösterme.
+- Sprint 4A'nın 8 adayından biri canonical seçilmeden Gain'e başlama.
 
 Tam liste: proje kökündeki `CLAUDE.md`.
 
 ## Bir sonraki görev
-Bir kod görevi DEĞİL: **kullanıcının kendi açık isteğiyle Sprint 4'ü
-tanımlaması** (bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]). D2/B1
-canonical seçilmiş olması, tek başına, Sprint 4'ü otomatik olarak AÇMAZ.
+Bir kod görevi DEĞİL: **`BACKGROUND_DECISION_PANEL.png` ve
+`BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin insan/jeofizik incelemesi**
+(bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin
+(veya hiçbirinin) canonical seçilmesi, tek başına, Gain'i otomatik olarak
+BAŞLATMAZ.
 
 ## Önce okunması gereken bağlantılar
 1. Bu dosya
 2. [[01_PROJECT_STATE/01_Current_Project_State]]
 3. [[01_PROJECT_STATE/02_Next_Development_Sprint]]
 4. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
+5. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]

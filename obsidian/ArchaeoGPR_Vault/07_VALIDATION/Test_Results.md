@@ -8,6 +8,90 @@ tags: [validation]
 Gerçek `pytest` terminal çıktıları, tarih sırasıyla (en yeni en üstte).
 Başarısız testler gizlenmez — şu ana kadar başarısız test kaydı yoktur.
 
+## 2026-07-15 (Sprint 4A — Background Removal Candidate Development & Geophysical QC)
+
+Command:
+```bash
+pytest -q
+```
+
+Result:
+```text
+........................................................................ [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 68%]
+........................................................................ [ 91%]
+..........................                                               [100%]
+314 passed in 151.64s (0:02:31)
+```
+
+254 önceki test hiç bozulmadı; 60 yeni Sprint 4A testi eklendi ve geçti:
+`tests/test_background.py` (44: `remove_background()` core algoritma —
+global_mean/global_median/sliding_mean/sliding_median her biri sabit
+iz→tam sıfır, girdi=çıktı+çıkarılan, kanal-bazlı bağımsızlık; pencere/
+geometri — metre→trace dönüşümü çift→tek yuvarlama+uyarı,
+`window_traces`/`window_m` ikisi birden hatası, minimum/maksimum pencere
+hataları, trace-spacing önceliği (geolocation→metadata→unavailable);
+edge/mask — `reflect`/`nearest` sentetik kenar-olay testleri, padding
+hariç/değişmeden, valid_mask bağımsız kopya; processing-history/export —
+tekrar-işleme guard'ı+override, NPZ round-trip; synthetic bilimsel-risk
+testleri — window-length vs target-length attenuation (kısa hedef
+korunuyor, geniş hedef merkezde neredeyse tamamen yok oluyor — ilk
+taslakta ters bir varsayım düzeltildi), global vs sliding uzun-olay
+testi, mean vs median outlier testi), `tests/test_background_qc.py`
+(11: sinyal-koruma metrikleri her zaman penceresini kapsıyor, RMS
+retention dominant background çıkarıldığında <1.0, removed-component
+metrikleri band-energy entegrasyonu dahil doğru yapıda, removed-component
+coherence paylaşılan background için yüksek (>0.9), localized-event-risk
+düz background'da düşük/eğri-lokal olayda yüksek, degenerate şekiller
+finite değil, QC plotting suite tüm dosyaları üretiyor, hiçbir metrik
+"canonical" anahtarı içermiyor), `tests/test_sprint4a_pipeline.py` (3:
+sentetik uçtan-uca zincir time-zero→...→background removal, NPZ
+round-trip'lerle her aşamada; `run_all_sprint4a_candidates()` sentetik
+uçtan-uca — tüm 8 aday üretiliyor/hiçbiri canonical değil; gerçek
+`window_m`/`window_traces` orkestrasyon hatası bu testte bulundu ve
+düzeltildi), `tests/test_sprint4a_real_integration.py` (2, gerçek dosya
+varsa çalışır: canonical Sprint 3 NPZ'si üzerinde background removal —
+shape/dtype/finiteness/zaman ekseni/valid_mask/padding korunumu,
+input=output+removed_component float32 hassasiyetinde, girdi mutasyona
+uğramıyor; 8-aday orkestrasyonu gerçek veride — tüm hash'ler değişmedi,
+ölçülebilir farklar var, hiçbir aday canonical).
+
+Kod incelemesi sırasında spec bölüm 15/16/20'nin literal gereksinimleriyle
+karşılaştırmalı bir denetim yapıldı ve üç boşluk bulundu/düzeltildi
+(`removed_input_absolute_energy_ratio`, spatial concentration,
+median-trace correlation, local-event amplitude retention, channel
+consistency before/after, ve `BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin
+3 eksik kolonu) — düzeltme sonrası tüm 16 Sprint 4A testi ve tam 314 test
+takımı yeniden çalıştırıldı, hepsi geçti. Detay:
+[[02_SPRINTS/Sprint_04A_Background_Removal]] Issues Discovered.
+
+### Diğer kalite kontrolleri (Sprint 4A, 2026-07-15)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 65 dosya (temiz, `test_sprint4a_pipeline.py` bir kez
+yeniden biçimlendirildi — yalnızca stil). `ruff check .`: `All checks
+passed!`. `mypy src/archaeogpr`: `Success: no issues found in 39 source
+files` (spec-tamlık düzeltmesi sonrası dahil).
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` → girdi hash'i
+`2044dd8f...82fd026`, işleme geçmişi `[time_zero_correction,
+dc_offset_correction, dewow_correction, bandpass_correction]`, 8 aday
+[A1..A8] çalıştırıldı, mühendislik kategorileri (A1/A2=preservation-
+favoring, A3/A6=suppression-favoring, A4/A5/A7/A8=balanced), ham dosya
+hash'i ve Sprint 2 canonical NPZ hash'i her ikisi de değişmedi, `Input
+file hash unchanged: True`, `Canonical selected: false`, `Gain started:
+false`. Programatik denetim: 8/8 aday NPZ'si geçerli (shape/dtype/NaN-Inf/
+işleme geçmişi/padding), tüm JSON/CSV parse edilebilir, tüm PNG'ler finite
+piksellerle açılabiliyor, hiçbir dosyada `"canonical": true` yok. Tam
+detay: [[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
 ## 2026-07-15 (Sprint 3 Canonicalization — D2 + B1 Selection)
 
 Command:

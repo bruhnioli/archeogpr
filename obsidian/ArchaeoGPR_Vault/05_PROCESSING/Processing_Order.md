@@ -6,7 +6,7 @@ type: processing-module
 
 ## Amaç
 
-Bu not, sinyal işleme adımlarının **hedeflenen çalıştırma sırasını** tam olarak belgeler. Sprint 3 itibarıyla bu sıranın ilk dört adımı (Time-zero, DC offset, Dewow, Band-pass) gerçek kodla implemente edilmiştir (bkz. [[Processing_Index]]); kalan adımlar için bu not, gelecekteki bir uygulamanın uyması gereken sırayı ve sıralamayla ilgili zorunlu kısıtları kayıt altına alır.
+Bu not, sinyal işleme adımlarının **hedeflenen çalıştırma sırasını** tam olarak belgeler. Sprint 4A itibarıyla bu sıranın ilk beş adımı (Time-zero, DC offset, Dewow, Band-pass, Background removal) gerçek kodla implemente edilmiştir (bkz. [[Processing_Index]]); Background removal'ın 8 adayından hiçbiri canonical değildir. Kalan adımlar için bu not, gelecekteki bir uygulamanın uyması gereken sırayı ve sıralamayla ilgili zorunlu kısıtları kayıt altına alır.
 
 ## Planlanan Sıra
 
@@ -22,7 +22,7 @@ Adım adım, vault'ta karşılık gelen not ile:
 3. [[DC_Offset]] — DC ofset giderimi. **implemented** (Sprint 2).
 4. [[Dewow]] — düşük frekanslı sürüklenme giderimi. **implemented** (Sprint 3) — canonical pencere henüz seçilmedi, bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-010.
 5. [[Bandpass_Filter]] — band-geçiren filtre. **implemented** (Sprint 3) — canonical aralık henüz seçilmedi, bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-011.
-6. [[Background_Removal]] — arka plan çıkarma.
+6. [[Background_Removal]] — arka plan çıkarma. **implemented** (Sprint 4A) — 8 aday çalıştırıldı, canonical aday henüz seçilmedi, bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012.
 7. **Optional F-K** — [[FK_Filter]]; adından da anlaşılacağı gibi bu adım isteğe bağlıdır ve akışın normal bir parçası değildir.
 8. [[Gain]] — amplitüd kazancı.
 9. [[Velocity_Analysis]] — hız analizi.

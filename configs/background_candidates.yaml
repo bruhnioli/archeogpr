@@ -1,0 +1,43 @@
+# Sprint 4A background-removal candidates -- QC comparison inputs only. None
+# of these is selected as canonical by this project; see
+# obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_04A_Background_Removal.md and
+# outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md.
+#
+# edge_mode applies to every sliding candidate below (global candidates
+# ignore it -- see ADR-008). window_m is converted to an odd trace count via
+# the dataset's own trace spacing (processing/background.py::
+# compute_trace_spacing) -- the approximate trace counts below (~13/~25/~37)
+# are QC context only, never hardcoded into the conversion itself.
+edge_mode: reflect
+
+candidates:
+  - id: A1
+    label: global_mean
+    method: global_mean
+  - id: A2
+    label: global_median
+    method: global_median
+  - id: A3
+    label: sliding_mean_050m
+    method: sliding_mean
+    window_m: 0.50 # ~13 traces at this dataset's own trace spacing
+  - id: A4
+    label: sliding_mean_100m
+    method: sliding_mean
+    window_m: 1.00 # ~25 traces
+  - id: A5
+    label: sliding_mean_150m
+    method: sliding_mean
+    window_m: 1.50 # ~37 traces
+  - id: A6
+    label: sliding_median_050m
+    method: sliding_median
+    window_m: 0.50
+  - id: A7
+    label: sliding_median_100m
+    method: sliding_median
+    window_m: 1.00
+  - id: A8
+    label: sliding_median_150m
+    method: sliding_median
+    window_m: 1.50

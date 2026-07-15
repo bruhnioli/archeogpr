@@ -15,18 +15,23 @@ modüler bir Python yazılımı geliştirmek. Sinyal işleme algoritmaları
 sırayla, sprint bazında ve açıkça istenmeden eklenmiyor (bkz. `CLAUDE.md`).
 
 ## Mevcut sprint
-Aktif bir sprint YOK. Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]])
-ve Sprint 3.1 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her
-ikisi de **done**. D2 dewow adayı Sprint 3.1'de 4/4 koşulla ayrıntılı
-doğrulanmış, B1/B2 band-pass adayları karar-odaklı QC ile karşılaştırılmış
-(mühendislik eğilimi: preservation-favoring/B1) idi; **2026-07-15'te
-kullanıcı bu önerileri insan/jeofizik kararı olarak onayladı: D2 dewow +
-B1 band-pass canonical** — bkz.
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]. Sprint 2, Sprint 2.1 ve Sprint 2.2
-durumları da `done` — bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
+**Sprint 4A** ([[02_SPRINTS/Sprint_04A_Background_Removal]]) —
+**review_required**. Dört background-removal yöntemi (global_mean/
+global_median/sliding_mean/sliding_median) implemente edildi; 8 aday
+(A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek veride
+çalıştırıldı, sinyal-koruma + removed-component metrikleri hesaplandı,
+5 synthetic bilimsel-risk deneyi çalıştırıldı. **Hiçbir aday canonical
+seçilmedi, Gain başlatılmadı** — bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
+([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her ikisi de
+**done** — 2026-07-15'te kullanıcı D2 dewow + B1 band-pass'i insan/
+jeofizik kararı olarak canonical seçti (bkz.
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Sprint 2, Sprint 2.1
+ve Sprint 2.2 durumları da `done` — bkz.
+[[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
 [[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
-[[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]]. Sprint 4 hâlâ
-TANIMLANMADI — bu karar, tek başına, Sprint 4'ü otomatik olarak AÇMAZ.
+[[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]].
 
 ## Tamamlanan özellikler
 **Sprint 1:** OpenGPR header/preamble okuyucu, Radar Volume + Sample
@@ -139,15 +144,36 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
   bandpass_correction]`, faz gecikmesi=0, padding tam sıfır, girdi/ham
   dosya hash'i değişmedi, iki bağımsız çalıştırma bit-bazında özdeş.
 - 22 yeni test (toplam 254). Bkz.
-  [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]. Sprint 4 hâlâ
-  tanımlanmadı/başlatılmadı — bu karar tek başına Sprint 4'ü açmaz.
+  [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]].
+
+**Sprint 4A** (review_required — kod tamam, insan/jeofizik incelemesi bekleniyor):
+- `remove_background()` — `global_mean`/`global_median`/`sliding_mean`/
+  `sliding_median`, kanal-bazlı bağımsız (kanallar hiçbir zaman
+  birleştirilmez); `compute_trace_spacing()` — geolocation → metadata
+  `sampling_step_m` → `unavailable` önceliği, hiçbir zaman sabit gömülü.
+- Pencere dönüşümü her zaman en yakın tek sayıya yuvarlanır, istenen/
+  uygulanan değer ayrı ayrı kaydedilir; `reflect`/`nearest` edge modu
+  (asla sıfır-padding); valid-mask/padding güvenliği (10 kural).
+- 8 aday (A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek
+  veride çalıştırıldı: A1/A2=global mean/median, A3-A5=sliding_mean
+  (0.5/1.0/1.5 m), A6-A8=sliding_median (aynı pencereler).
+  `outputs/sprint04a/` (8×18 dosya + karşılaştırma + karar paneli/rapor).
+  **Hiçbir aday canonical seçilmedi, Gain başlatılmadı.**
+- Sinyal-koruma + removed-component metrikleri (waveform/median-trace
+  correlation, RMS/energy retention, spatial coherence/concentration,
+  yeni QC-only `compute_localized_event_risk()` proxy'si — asla
+  arkeolojik sınıflandırma yapmaz) + 5 synthetic bilimsel-risk deneyi.
+- CLI: `background`, `sprint4a-candidates` alt komutları.
+- 60 yeni test (toplam 314). Bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
 ## Henüz uygulanmayan özellikler
-Background removal, gain, AGC, F-K filtering, migration, Hilbert envelope,
-depth-slice üretimi, anomaly detection, arkeolojik sınıflandırma, Blender
-export, GUI. Hiçbiri için sahte/yarım implementasyon yok — sadece
-`05_PROCESSING/` altında gelecek için planlanan API bağlamı var (bkz.
-[[05_PROCESSING/Processing_Index]]).
+Gain, AGC, F-K filtering, migration, Hilbert envelope, depth-slice
+üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export, GUI.
+Background removal artık implemente edildi ama **hiçbir adayı canonical
+değil** (bkz. Sprint 4A yukarıda). Hiçbiri için sahte/yarım
+implementasyon yok — sadece `05_PROCESSING/` altında gelecek için
+planlanan API bağlamı var (bkz. [[05_PROCESSING/Processing_Index]]).
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -157,25 +183,30 @@ export, GUI. Hiçbiri için sahte/yarım implementasyon yok — sadece
 ## Doğrulanan gerçek veri seti
 `Swath003_Array02.ogpr` (`data/raw/Swath003_Array02.ogpr`, 8,010,373 byte,
 SHA-256 `66d840c3...b62a6` — Sprint 1'den bu yana, tüm Sprint 2.1/2.2/3/
-3.1/canonicalization çalıştırmaları dahil, değişmedi). Shape
+3.1/canonicalization/4A çalıştırmaları dahil, değişmedi). Shape
 `(175, 11, 1024)`, float32, 600 MHz, horizontal polarization, geolocation
 mevcut. Canonical işlenmiş türev (Sprint 2): `outputs/sprint02/
 canonical_target16/` (Sprint 2.2, SHA-256 `b2770b5c...af5afe`, Sprint
-3/3.1/canonicalization boyunca değişmedi). Sprint 3 aday karşılaştırmaları:
-`outputs/sprint03/{dewow_candidates,bandpass_candidates,
+3/3.1/canonicalization/4A boyunca değişmedi). Sprint 3 aday
+karşılaştırmaları: `outputs/sprint03/{dewow_candidates,bandpass_candidates,
 combined_candidates,spectrum}/` (202 dosya, tarihsel QC kanıtı — hiçbiri
 canonical değil). Sprint 3.1 D2 doğrulama + B1/B2 karar QC'si:
 `outputs/sprint03_1/` (24 dosya, tarihsel QC kanıtı — hiçbiri canonical
 değil). **Canonical Sprint 3 çıktısı (2026-07-15): `outputs/sprint03/
 canonical_D2_B1/`** (15 dosya, D2+B1, insan/jeofizik kararı — bkz.
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Eski türevler
-(`outputs/sprint02/combined/`, `outputs/sprint02_review/`) korundu,
-sidecar notlarla süperseded olarak işaretlendi. Detay:
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]], SHA-256
+`2044dd8f...82fd026`, Sprint 4A boyunca değişmedi). **Sprint 4A aday
+karşılaştırmaları (2026-07-15): `outputs/sprint04a/`** (8 aday × 18
+dosya + karşılaştırma + karar paneli/rapor, tarihsel QC kanıtı — hiçbiri
+canonical değil, bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
+Eski türevler (`outputs/sprint02/combined/`, `outputs/sprint02_review/`)
+korundu, sidecar notlarla süperseded olarak işaretlendi. Detay:
 [[04_DATASETS/Swath003_Array02]].
 
 ## Test durumu
-`pytest` → **254 passed, 0 failed, 0 skipped** (2026-07-15, gerçek dosya
-mevcutken çalıştırıldı: 232 önceki + 22 yeni canonicalization testi).
+`pytest` → **314 passed, 0 failed, 0 skipped** (2026-07-15, gerçek dosya
+mevcutken çalıştırıldı: 254 önceki + 60 yeni Sprint 4A testi).
 Detay: [[07_VALIDATION/Test_Results]].
 
 ## Bilinen hatalar
@@ -208,11 +239,12 @@ Açık sorunlar (hata değil, belirsizlik/karar bekleyen konular) için
 ## Önemli dosya yolları
 - Okuyucu: `src/archaeogpr/io/ogpr_reader.py`
 - Veri modeli: `src/archaeogpr/model/dataset.py`
-- İşleme: `src/archaeogpr/processing/{common,time_zero,dc_offset,dewow,bandpass}.py`
+- İşleme: `src/archaeogpr/processing/{common,time_zero,dc_offset,dewow,bandpass,background}.py`
 - QC: `src/archaeogpr/qc/{time_zero,dc_offset,spectrum,dewow,bandpass,
-  spatial_coherence,phase_metrics,band_energy,decision_qc}.py`
+  spatial_coherence,phase_metrics,band_energy,decision_qc,background}.py`
 - Sprint 3 yükleyici/orkestrasyon: `src/archaeogpr/export/sprint3.py`, `src/archaeogpr/sprint3_candidates.py`
 - Sprint 3 canonicalization: `src/archaeogpr/sprint3_canonical.py`
+- Sprint 4A yazıcı/orkestrasyon: `src/archaeogpr/export/sprint4a.py`, `src/archaeogpr/sprint4a_candidates.py`
 - CLI: `src/archaeogpr/cli.py`
 - Gerçek örnek veri: `data/raw/Swath003_Array02.ogpr`
 - QC çıktıları: `outputs/inspect/`, `outputs/sprint02/canonical_target16/`
@@ -223,6 +255,8 @@ Açık sorunlar (hata değil, belirsizlik/karar bekleyen konular) için
   `outputs/sprint03_1/` (Sprint 3.1 D2 doğrulama + B1/B2 karar QC'si,
   tarihsel QC kanıtı — hiçbiri canonical değil),
   `outputs/sprint03/canonical_D2_B1/` (**Sprint 3 canonical çıktısı, D2+B1**),
+  `outputs/sprint04a/` (Sprint 4A 8 background-removal adayı, tarihsel QC
+  kanıtı — hiçbiri canonical değil),
   eski: `outputs/sprint02/combined/`, `outputs/sprint02_review/`
 - Karşılaştırma/doğrulama script'leri:
   `scripts/generate_sprint2_1_review_comparison.py`,
@@ -230,15 +264,19 @@ Açık sorunlar (hata değil, belirsizlik/karar bekleyen konular) için
   `scripts/generate_sprint3_1_decision_qc.py`
 - Canonicalization testleri: `tests/test_sprint3_canonical.py`,
   `tests/test_cli_sprint3_canonical.py`
-- Aday konfigürasyonları: `configs/{dewow,bandpass}_candidates.yaml`
+- Sprint 4A testleri: `tests/test_background.py`,
+  `tests/test_background_qc.py`, `tests/test_sprint4a_pipeline.py`,
+  `tests/test_sprint4a_real_integration.py`
+- Aday konfigürasyonları: `configs/{dewow,bandpass,background}_candidates.yaml`
 - Vault: `obsidian/ArchaeoGPR_Vault/`
 
 ## Bir sonraki somut görev
-Bir kod görevi DEĞİL: **kullanıcının kendi açık isteğiyle Sprint 4'ü
-tanımlaması**. D2 (dewow) + B1 (band-pass) 2026-07-15'te canonical
-seçildi (bkz. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]), ama bu
-tek başına Sprint 4'ü AÇMAZ. Detay:
-[[01_PROJECT_STATE/02_Next_Development_Sprint]].
+Bir kod görevi DEĞİL: **`BACKGROUND_DECISION_PANEL.png` ve
+`BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin insan/jeofizik incelemesi**
+(Sprint 4A, bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
+8 adaydan birinin (veya hiçbirinin) canonical seçilmesi, tek başına,
+Gain'i AÇMAZ. Detay: [[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
 2026-07-15

@@ -162,6 +162,22 @@ ve kendi insan/jeofizik incelemesini gerektirir. Tam detay:
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
 [[07_VALIDATION/QC_Output_Validation]].
 
+## İşlenmiş Türevler (Sprint 4A — Background Removal Aday Karşılaştırmaları)
+Canonical Sprint 3 çıktısı (`outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz`) üzerinde 8 background-removal adayı (A1-A8: 2
+global + 6 sliding, D2+B1 canonical zinciri üzerinde) çalıştırıldı ve
+karşılaştırıldı — **hiçbiri canonical seçilmedi**. Trace-spacing kaynağı
+gerçek çalıştırmada `metadata_sampling_step` oldu (`trace_spacing_m=
+0.04008848472894169` — canonical NPZ'de geolocation taşınmadığı için).
+Uygulanan pencereler: A3/A6 (0.5m istenen) → 13 traces/0.5212m; A4/A7
+(1.0m) → 25 traces/1.002m; A5/A8 (1.5m) → 37 traces/1.483m. Removed-
+component adjacent-trace correlation (W5, 20-100ns): A1=1.0, A2=1.0,
+A3=0.9965, A4=0.9988, A5=0.9995, A6=0.9919, A7=0.9971, A8=0.9984 — tüm 8
+adayda yüksek, yöntemden bağımsız bir risk sinyali. Tam detay:
+[[02_SPRINTS/Sprint_04A_Background_Removal]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[07_VALIDATION/QC_Output_Validation]].
+
 ## Amplitude statistics (ham, gain uygulanmamış)
 | İstatistik | Değer |
 |---|---|
@@ -197,15 +213,18 @@ altında toplam 66 dosya (CSV/JSON/NPZ/PNG). Tam liste ve doğrulama:
 
 **Sprint 3 (`outputs/sprint03/`):** `dewow_candidates/`, `spectrum/`,
 `bandpass_candidates/`, `combined_candidates/` altında toplam 209 dosya +
-`SPRINT3_REVIEW_REQUIRED.md` — **hiçbiri canonical değil**. Tam liste ve
-doğrulama: [[07_VALIDATION/QC_Output_Validation]].
+`SPRINT3_REVIEW_REQUIRED.md` — **hiçbiri canonical değil**.
+**Sprint 4A (`outputs/sprint04a/`):** `background_candidates/` (8 aday ×
+18 dosya) + `comparison/` (19 dosya) + 3 üst düzey dosya, toplam 164
+dosya — **hiçbiri canonical değil**. Tam liste ve doğrulama:
+[[07_VALIDATION/QC_Output_Validation]].
 
 ## İlgili testler
 `tests/test_real_ogpr_integration.py`, `tests/test_sprint2_real_integration.py`,
 `tests/test_sprint3_real_integration.py`, `tests/test_sprint3_canonical.py`,
-`tests/test_cli_sprint3_canonical.py` (hepsi bu dosya mevcut olduğu
-için skip edilmedi, geçti). Detay: [[07_VALIDATION/Test_Results]],
-[[07_VALIDATION/Parser_Validation]].
+`tests/test_cli_sprint3_canonical.py`, `tests/test_sprint4a_real_
+integration.py` (hepsi bu dosya mevcut olduğu için skip edilmedi, geçti).
+Detay: [[07_VALIDATION/Test_Results]], [[07_VALIDATION/Parser_Validation]].
 
 ## Bilinen belirsizlikler
 - CRS doğrulanmadı (bkz. yukarı).
@@ -224,6 +243,12 @@ için skip edilmedi, geçti). Detay: [[07_VALIDATION/Test_Results]],
   [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-010 (resolved), ISSUE-011
   (resolved), [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]. Bu seçim
   yalnızca bu veri seti için geçerlidir.
+- Background-removal adayı (A1-A8) seçimi henüz açık — Sprint 4A, 8 aday
+  üretti ve karşılaştırdı ama hiçbirini canonical seçmedi; bu veri
+  setinde tüm 8 adayın removed component'i yüksek mekânsal koherans
+  gösteriyor (0.83-1.0), yöntemden bağımsız bir risk sinyali. Bkz.
+  [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012,
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
 ## İlgili notlar
 [[Dataset_Index]], [[03_ARCHITECTURE/OpenGPR_File_Structure]],
@@ -232,4 +257,6 @@ için skip edilmedi, geçti). Detay: [[07_VALIDATION/Test_Results]],
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]],
 [[02_SPRINTS/Sprint_03_Dewow_Bandpass]],
 [[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]],
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
+[[02_SPRINTS/Sprint_04A_Background_Removal]],
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]

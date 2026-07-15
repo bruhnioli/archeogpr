@@ -9,6 +9,7 @@ En yeniden eskiye:
 
 | Tarih | Sprint | Durum | Not |
 |---|---|---|---|
+| 2026-07-15 | 4A | review_required | [[Session_2026-07-15_Sprint04A_BackgroundRemoval]] |
 | 2026-07-15 | 3 canonicalization | done | [[Session_2026-07-15_Sprint03_Canonicalization]] |
 | 2026-07-15 | 3.1 | done (bkz. canonicalization) | [[Session_2026-07-15_Sprint03_1_DecisionQC]] |
 | 2026-07-15 | 3 | done (bkz. canonicalization) | [[Session_2026-07-15_Sprint03_DewowBandpass]] |
