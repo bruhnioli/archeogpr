@@ -34,7 +34,7 @@ source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-Core runtime dependencies: `numpy`, `pandas`, `matplotlib`, `pytest`.
+Core runtime dependencies: `numpy`, `pandas`, `matplotlib`, `pytest`, `scipy`, `pyyaml`.
 Optional dev dependencies (`.[dev]`): `ruff`, `mypy`.
 
 ## Sample data
@@ -112,12 +112,19 @@ python -m archaeogpr sprint3 outputs/sprint02/canonical_target16/sprint02_proces
 Tracebacks are hidden by default on error; pass `--debug` (before the
 subcommand) to see the full traceback.
 
-**Important:** `--max-shift-samples` (default 64) clips — and warns about —
-any channel shift that exceeds it; it is never applied silently. On the real
-sample file, the default combination of `--target-sample 0` and
-`--max-shift-samples 64` clips most channels (their true shift is ~61–74
-samples). Raise `--max-shift-samples` if you need every channel to land
-exactly on `--target-sample`.
+**Important:** `--max-shift-samples` (default 64) does **not** clip by
+default. The default `--overflow-policy error` **aborts before touching
+any data** if a channel's shift exceeds `--max-shift-samples` — no output
+is written. Clipping only happens with the explicit opt-in
+`--overflow-policy clip`, and a clipped result is marked
+`valid_for_downstream_processing=false` in its diagnostics; it must never
+be treated as canonical without explicit human review. On the real sample
+file, the combination of `--target-sample 0` and `--max-shift-samples 64`
+exceeds the limit on most channels (their true shift is ~61–74 samples) —
+raise `--max-shift-samples` (e.g. to 96) if you need every channel to land
+exactly on `--target-sample` without hitting the error/clip decision at
+all. See [`ADR_003_Overflow_Policy_and_Padding_Aware_DC_Offset`](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_003_Overflow_Policy_and_Padding_Aware_DC_Offset.md)
+for the full policy.
 
 ## Generated outputs
 
