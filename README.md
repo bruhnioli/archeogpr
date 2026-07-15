@@ -1,5 +1,7 @@
 # archaeogpr
 
+[![CI](https://github.com/bruhnioli/archeogpr/actions/workflows/ci.yml/badge.svg)](https://github.com/bruhnioli/archeogpr/actions/workflows/ci.yml)
+
 Read, validate, and quality-control OpenGPR (`.ogpr`) ground-penetrating radar
 files produced by IDS GeoRadar systems, as a foundation for future
 archaeological GPR visualization.
@@ -9,10 +11,17 @@ archaeological GPR visualization.
 that every OpenGPR file is supported — see
 [Parser scope and limitations](#parser-scope-and-limitations).
 
-**Implemented so far (Sprint 1 + Sprint 2):** file reading, data modeling,
-header/metadata validation, basic QC outputs (plots, CSV, JSON, NPZ),
-time-zero correction, and DC offset correction. No other signal processing
-is implemented yet — see [Not yet implemented](#not-yet-implemented).
+**Implemented so far (Sprint 1 – Sprint 3 canonicalization):** file reading,
+data modeling, header/metadata validation, basic QC outputs (plots, CSV,
+JSON, NPZ), time-zero correction, DC offset correction, dewow, and
+zero-phase band-pass filtering. For the validated sample dataset
+(`Swath003_Array02.ogpr`), a **canonical processing chain has been
+selected by human/geophysical review**: Sprint 2 canonical
+(`target_sample=16`) → **D2** dewow → **B1** band-pass — see
+[Canonical Sprint 3 selection (D2 + B1)](#canonical-sprint-3-selection-d2--b1)
+below. No archaeological interpretation, background removal, gain, F-K
+filtering, velocity analysis, or migration is implemented yet — see
+[Not yet implemented](#not-yet-implemented).
 
 ## Installation
 
@@ -31,9 +40,11 @@ Optional dev dependencies (`.[dev]`): `ruff`, `mypy`.
 ## Sample data
 
 Place a real `.ogpr` file (e.g. `Swath003_Array02.ogpr`) under `data/raw/`.
-This directory is **read-only input** — see [Raw data safety](#raw-data-safety) below.
-If no real file is present, unit tests still run in full using a synthetic
-in-memory fixture; only the real-file integration test is skipped.
+This directory is **read-only input** — see [Raw data safety](#raw-data-safety) below,
+and is excluded from version control (`.gitignore`) since raw radar data is
+user-supplied and may be large or proprietary. If no real file is present,
+unit tests still run in full using synthetic in-memory fixtures; only the
+real-file integration tests skip cleanly.
 
 ## CLI usage
 
@@ -71,6 +82,31 @@ python -m archaeogpr sprint2 data/raw/Swath003_Array02.ogpr \
   --output-dir outputs/sprint02/combined \
   --time-zero-method channel-median-peak --search-start-ns 5 --search-end-ns 15 \
   --peak-polarity max-abs --target-sample 0 --dc-method mean
+
+# Dewow (moving-window baseline removal) on a Sprint 2/3-style processed NPZ.
+# Never marks a run canonical -- for experimentation/comparison only.
+python -m archaeogpr dewow outputs/sprint02/canonical_target16/sprint02_processed.npz \
+  --output-dir outputs/sprint03/dewow_manual --window-ns 8.0 --method running-mean
+
+# Zero-phase band-pass filtering. Never marks a run canonical.
+python -m archaeogpr bandpass outputs/sprint03/dewow_manual/dewow_processed.npz \
+  --output-dir outputs/sprint03/bandpass_manual --method butterworth \
+  --lowcut-mhz 100 --highcut-mhz 900 --order 4
+
+# Run every dewow/band-pass/combined candidate + QC comparisons (configs/*.yaml).
+# Selects nothing canonical -- produces comparison evidence only.
+python -m archaeogpr sprint3-candidates outputs/sprint02/canonical_target16/sprint02_processed.npz \
+  --output-dir outputs/sprint03
+
+# The CANONICAL Sprint 3 chain: D2 dewow + B1 band-pass, selected by
+# human/geophysical review (see "Canonical Sprint 3 selection" below).
+# The flags shown here ARE the canonical defaults -- omitting them applies
+# the same D2+B1 parameters. Overriding any of them prints
+# "canonical selected: false" plus an explicit warning.
+python -m archaeogpr sprint3 outputs/sprint02/canonical_target16/sprint02_processed.npz \
+  --output-dir outputs/sprint03/canonical_D2_B1 \
+  --dewow-method running-mean --dewow-window-ns 8 --dewow-edge-mode reflect \
+  --bandpass-method butterworth --lowcut-mhz 100 --highcut-mhz 900 --order 4 --zero-phase
 ```
 
 Tracebacks are hidden by default on error; pass `--debug` (before the
@@ -114,6 +150,52 @@ using the input file's stem as a prefix:
 | `processing_metadata.json` | That stage's own `processing_history` entry (operation, parameters, diagnostics, warnings) |
 | `time_zero_corrected.npz` / `dc_offset_corrected.npz` | That stage's corrected `amplitudes` + `removed_component` + full history |
 | `sprint02_processed.npz`, `processing_history.json`, `sprint02_summary.json` | Combined-pipeline final dataset, full history, and a compact summary (`sprint2` only) |
+
+`dewow`/`bandpass`/`sprint3-candidates`/`sprint3` write into their own
+`--output-dir` (default `outputs/sprint03/...`):
+
+| File | Contents |
+|---|---|
+| `{dewow,bandpass,sprint03}_processed.npz` | That stage's corrected `amplitudes` + `removed_component` + full `processing_history` |
+| `channel00_{raw,after,before,removed,difference}.png`, `all_channels_final.png` | Before/after/removed-component B-scans |
+| `spectrum_before_after.png`, `transfer_function.png` | Amplitude-spectrum QC and (band-pass) the filter's own transfer function |
+| `padding_verification.json` | Machine-readable proof padding was never touched and `removed_component` is exactly zero there |
+| `phase_verification.json` | Zero-phase proof (median-trace cross-correlation lag; canonical `sprint3` output only) |
+| `processing_metadata.json`, `processing_history.json` | That stage's diagnostics and the dataset's full processing history |
+| `canonical_parameters.json`, `CANONICAL_PROCESSING_NOTE.md` | Selection authority, D2/B1 rationale, dataset scope (canonical `sprint3` output only) |
+
+`sprint3-candidates` additionally writes one such set per D1–D4/B1–B4/C1–C6
+candidate under its own subfolder, plus a `comparison/*_REVIEW_REQUIRED.md`
+per family and a top-level `SPRINT3_REVIEW_REQUIRED.md` — see
+[Canonical Sprint 3 selection](#canonical-sprint-3-selection-d2--b1).
+
+## Canonical Sprint 3 selection (D2 + B1)
+
+Sprint 3 produced four dewow candidates (D1–D4) and four band-pass
+candidates (B1–B4); nothing in that comparison code path is ever marked
+canonical automatically. For the validated sample dataset
+(`Swath003_Array02.ogpr`), the human/geophysical reviewer selected:
+
+- **D2** dewow — `running_mean`, requested `8.0 ns` → applied `8.125 ns`
+  (65 samples), `edge_mode=reflect`.
+- **B1** band-pass — Butterworth, `100–900 MHz`, `order=4`, zero-phase.
+
+This selection is encoded as fixed, named parameters in
+`src/archaeogpr/sprint3_canonical.py` (`run_sprint3_canonical()`), which
+calls the same `correct_dewow()`/`correct_bandpass()` used everywhere
+else — **no new filtering algorithm was introduced to make this
+canonical**. Run it with `python -m archaeogpr sprint3` (see
+[CLI usage](#cli-usage)); the canonical output lives in
+`outputs/sprint03/canonical_D2_B1/` and includes
+`CANONICAL_PROCESSING_NOTE.md`, documenting the rationale, that B1 is the
+preservation-favoring choice over B2, and that the energy B1 retains in
+the 800–900 MHz band has **no confirmed archaeological interpretation**.
+
+**This selection is scoped to `Swath003_Array02.ogpr` only.** A different
+dataset or acquisition setting requires its own Sprint-3-style candidate
+comparison and its own human/geophysical review before any parameters may
+be treated as canonical for it — see
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_007_Canonical_D2_B1_Selection.md`.
 
 ## Radar array axis order
 
@@ -193,34 +275,61 @@ pytest
 ```
 
 Unit tests (`test_ogpr_reader.py`, `test_data_model.py`, `test_time_zero.py`,
-`test_dc_offset.py`, `test_processing_history.py`) use synthetic in-memory
-fixtures and always run. `test_real_ogpr_integration.py` and
-`test_sprint2_real_integration.py` run only if
-`data/raw/Swath003_Array02.ogpr` is present, and otherwise skip cleanly
-(not a failure).
+`test_dc_offset.py`, `test_dewow.py`, `test_bandpass.py`, `test_spectrum.py`,
+`test_sprint3_pipeline.py`, `test_sprint3_1_decision_qc.py`,
+`test_sprint3_canonical.py`, `test_cli_sprint3_canonical.py`,
+`test_processing_history.py`, `test_target_invariance.py`,
+`test_export_processed.py`) use synthetic in-memory fixtures and always
+run. `test_real_ogpr_integration.py`, `test_sprint2_real_integration.py`,
+`test_sprint3_real_integration.py`, `test_sprint3_canonical.py`, and
+`test_cli_sprint3_canonical.py` also include real-file checks that run
+only if `data/raw/Swath003_Array02.ogpr` is present, and otherwise skip
+cleanly (not a failure) — this is why CI (see badge above) is expected to
+show these real-file cases as **skipped**, since the raw sample file is
+intentionally excluded from version control.
+
+Also run as part of CI:
+
+```bash
+ruff format --check .
+ruff check .
+mypy src/archaeogpr
+python scripts/validate_obsidian_vault.py obsidian/ArchaeoGPR_Vault
+```
 
 ## Implementation status
 
-**Implemented (Sprint 1 + Sprint 2):** file reading (`io/`), the immutable
-data model (`model/`), metadata/QC derivation and plots (`qc/`), basic
-exports (`export/basic.py`), time-zero correction and DC offset correction
-(`processing/`, `export/processed.py`), and the CLI. See
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_01_OpenGPR_Infrastructure.md`
-and `.../Sprint_02_TimeZero_DCOffset.md` for the full sprint records.
+**Implemented (Sprint 1 – Sprint 3 canonicalization):** file reading
+(`io/`), the immutable data model (`model/`), metadata/QC derivation and
+plots (`qc/`), basic exports (`export/basic.py`), time-zero correction and
+DC offset correction (`processing/time_zero.py`, `processing/dc_offset.py`),
+dewow (`processing/dewow.py`), zero-phase band-pass filtering
+(`processing/bandpass.py`), amplitude-spectrum QC (`qc/spectrum.py`),
+candidate-comparison orchestration (`sprint3_candidates.py` — never marks
+anything canonical), the canonical D2+B1 Sprint 3 chain
+(`sprint3_canonical.py`, human/geophysical selection — see
+[Canonical Sprint 3 selection](#canonical-sprint-3-selection-d2--b1)), and
+the CLI. See `obsidian/ArchaeoGPR_Vault/02_SPRINTS/` for the full sprint
+records and `06_DECISIONS/ADR_001..007` for the architectural decisions
+behind each of them.
 
 ## Not yet implemented
 
 None of the following are implemented. No placeholder, partial, or
 fake-working code exists for them:
 
-dewow, band-pass filtering, background removal, gain, AGC, F-K filtering,
-velocity analysis, migration, Hilbert envelope, depth slices, anomaly
-detection, archaeological classification, Blender export, GIS export, GUI,
+background removal, gain, AGC, F-K filtering, velocity analysis,
+migration, Hilbert envelope, depth slices, anomaly detection,
+archaeological classification, Blender export, GIS export, GUI,
 trace-by-trace (per-trace-independent) automatic time-zero warping,
 sub-sample shifting.
 
 See `05_PROCESSING/` in the Obsidian vault for their planned (not
-implemented) API shape.
+implemented) API shape, and
+`obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/02_Next_Development_Sprint.md`
+for how a future Sprint 4 covering some of these would be scoped — it is
+not started, and the D2+B1 canonical selection above does not, by itself,
+start it.
 
 ## Obsidian Knowledge Base
 

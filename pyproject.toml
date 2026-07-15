@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "archaeogpr"
 version = "0.1.0"
-description = "Reader, data model, and QC tooling for OpenGPR (.ogpr) archaeological GPR data (Sprint 1: data infrastructure)."
+description = "Reader, data model, and signal-processing pipeline for OpenGPR (.ogpr) archaeological GPR data -- time-zero/DC-offset correction, dewow, and band-pass filtering, with a canonical Sprint 3 (D2 dewow + B1 band-pass) processing chain selected by human/geophysical review."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
