@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Raw GPR data — user-supplied, may be large/proprietary, never committed
+data/raw/*
+!data/raw/.gitkeep
+*.ogpr
+*.dt
+*.gec
+*.sgy
+*.segy
+
+# Generated and large scientific outputs — regenerate via the CLI/scripts
+outputs/*
+!outputs/.gitkeep
+*.npz
+*.h5
+*.hdf5
+*.zarr/
+*.npy
+
+# Obsidian user-specific / application state (the vault's own Markdown
+# notes under obsidian/ArchaeoGPR_Vault/ are project content and ARE
+# committed; only local app/workspace state is excluded here)
+.obsidian/
+**/.obsidian/workspace.json
+**/.obsidian/workspace-mobile.json
+**/.obsidian/cache
+**/.obsidian/plugins/
+**/.trash/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

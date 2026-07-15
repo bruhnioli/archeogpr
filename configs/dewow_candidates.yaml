@@ -1,0 +1,26 @@
+# Sprint 3 dewow candidates -- QC comparison inputs only. None of these is
+# selected as canonical by this project; see
+# obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_03_Dewow_Bandpass.md and
+# outputs/sprint03/SPRINT3_REVIEW_REQUIRED.md.
+#
+# edge_mode applies to every candidate below (all use the same edge policy,
+# see ADR-005) -- only method/window_ns vary between candidates.
+edge_mode: reflect
+
+candidates:
+  - id: D1
+    label: mean_4ns
+    method: running_mean
+    window_ns: 4.0
+  - id: D2
+    label: mean_8ns
+    method: running_mean
+    window_ns: 8.0
+  - id: D3
+    label: mean_12ns
+    method: running_mean
+    window_ns: 12.0
+  - id: D4
+    label: median_8ns
+    method: running_median
+    window_ns: 8.0

@@ -1,0 +1,182 @@
+---
+type: project-state
+tags: [project-state]
+---
+
+> Bu dosya hızlı bağlam özetidir. Kodun gerçek davranışı için repository ve testler kaynak kabul edilir.
+
+# Claude Context — archaeogpr
+
+## Proje amacı
+IDS GeoRadar OpenGPR (`.ogpr`) dosyalarını okuyan, doğrulayan ve ileride
+arkeolojik GPR görselleştirmesi için kullanılacak modüler bir Python
+yazılımı. Nihai hedef arkeolojik GPR görselleştirme; şu ana kadar veri
+altyapısı + iki temel sinyal işleme modülü (time-zero, DC offset) kuruldu.
+
+## Repository yolu ve temel mimari
+- Kök: `archaeogpr/` (proje bu klasörde; henüz bir git repository değil)
+- `src/archaeogpr/io/` — `ogpr_reader.py` (`read_ogpr`, `read_ogpr_header`), `exceptions.py`
+- `src/archaeogpr/model/` — `dataset.py` (`GPRDataset`), `_frozen.py` (paylaşılan `FrozenDict`/freeze yardımcıları)
+- `src/archaeogpr/processing/` — `common.py` (`contiguous_true_runs` dahil), `result.py` (`ProcessingResult`), `time_zero.py`, `dc_offset.py`, `dewow.py`, `bandpass.py`
+- `src/archaeogpr/qc/` — `metadata.py`, `bscan.py`, `geometry.py`, `time_zero.py`, `dc_offset.py`, `spectrum.py`, `dewow.py`, `bandpass.py`
+- `src/archaeogpr/export/` — `basic.py`, `processed.py` (Sprint 2 CSV/JSON/NPZ), `sprint3.py` (`read_processed_npz`, `load_candidates_config`, `write_padding_verification_json`)
+- `src/archaeogpr/sprint3_candidates.py` — Sprint 3 aday orkestrasyonu (dewow/spektrum/band-pass/kombine + karşılaştırma + `SPRINT3_REVIEW_REQUIRED.md`)
+- `src/archaeogpr/sprint3_canonical.py` — canonical D2+B1 zinciri (`run_sprint3_canonical()`, `write_canonical_processing_note()`) — insan/jeofizik kararı, yeni filtre algoritması YOK
+- `src/archaeogpr/cli.py`, `__main__.py` — `python -m archaeogpr inspect|header|time-zero|dc-offset|sprint2|dewow|bandpass|sprint3-candidates|sprint3`
+- `configs/{dewow,bandpass}_candidates.yaml` — Sprint 3 aday tanımları
+- `tests/` — sentetik fixture tabanlı unit testler + gerçek dosya entegrasyon testleri
+- `obsidian/ArchaeoGPR_Vault/` — bu vault
+- Detaylı harita: [[03_ARCHITECTURE/Repository_Map]]
+
+## Aktif sprint
+Aktif bir sprint YOK — Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]])
+ve Sprint 3.1 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her
+ikisi de **done**. Kullanıcı 2026-07-15'te insan/jeofizik kararını verdi:
+**D2** dewow + **B1** band-pass canonical seçildi (bkz.
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Canonical zincir
+(Sprint 2 canonical → D2 → B1) `outputs/sprint03/canonical_D2_B1/`'a
+yazıldı. Sprint 2/2.1/2.2 durumları da `done` (bkz.
+[[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
+[[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
+[[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]]). Sprint 4 hâlâ
+TANIMLANMADI — D2/B1'in canonical seçilmiş olması, tek başına, Sprint 4'ü
+otomatik olarak AÇMAZ; kullanıcının kendi açık isteği gerekir.
+
+## Mevcut çalışan özellikler
+- Sprint 1: `.ogpr` okuyucu, `GPRDataset`, türetilmiş metadata, temel QC
+  görselleri/exportlar, `inspect`/`header` CLI.
+- Sprint 2: `correct_time_zero()` (manual / channel_median_peak /
+  channel_median_cross_correlation), `correct_dc_offset()` (mean / median),
+  `ProcessingResult` (dataset + removed_component + diagnostics + warnings),
+  before/after/difference B-scan QC, `time-zero`/`dc-offset`/`sprint2` CLI
+  alt komutları.
+- Sprint 3: `correct_dewow()` (running_mean/running_median, segment-bazlı),
+  `correct_bandpass()` (zero-phase Butterworth + Ormsby, segment-bazlı),
+  `compute_amplitude_spectrum()` (genlik spektrumu QC), `read_processed_
+  npz()` (güvenli NPZ yükleyici), aday orkestrasyonu
+  (`sprint3_candidates.py`), `dewow`/`bandpass`/`sprint3-candidates` CLI
+  alt komutları. Karşılaştırma aşamasında hiçbir aday canonical
+  seçilmedi (bkz. aşağıdaki canonicalization maddesi için nihai karar).
+- Sprint 3.1: `qc/{spatial_coherence,phase_metrics,band_energy,
+  decision_qc}.py` (yeni QC/analiz katmanı, yeni filtre YOK) +
+  `scripts/generate_sprint3_1_decision_qc.py`. D2 dewow'un removed
+  component'i ayrıntılı doğrulandı; yalnızca B1/B2 band-pass adayları
+  karar-odaklı QC ile karşılaştırıldı.
+- **Sprint 3 Canonicalization (2026-07-15):** `sprint3_canonical.py`
+  (`run_sprint3_canonical()`, `correct_dewow()`/`correct_bandpass()`'i
+  D2/B1 sabit parametreleriyle çağırır — yeni bir filtre algoritması
+  YOK), `sprint3` CLI alt komutu. İnsan/jeofizik kararı: **D2 dewow + B1
+  band-pass canonical**. Bkz.
+  [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
+  `outputs/sprint03/canonical_D2_B1/`.
+
+## Son doğrulanan test sonucu
+`pytest` → **254 passed, 0 failed, 0 skipped** (2026-07-15; 232 önceki +
+22 yeni canonicalization testi). Gerçek dosya entegrasyon testleri çalıştı
+(skip edilmedi). Detay: [[07_VALIDATION/Test_Results]].
+
+## Aktif dataset
+`Swath003_Array02.ogpr` — shape `(175, 11, 1024)`, float32, 600 MHz,
+horizontal polarization, geolocation mevcut, SRS EPSG:32632 (doğrulanmamış).
+Sprint 2 sonrası işlenmiş türevleri de mevcut (`outputs/sprint02/`).
+Detay: [[04_DATASETS/Swath003_Array02]].
+
+## Kritik teknik kararlar
+- Radar eksen sırası sabit: `(slice, channel, sample)`.
+- Ham veri modeli tamamen immutable (`model/_frozen.py`: `FrozenDict` + read-only ndarray).
+- Time-zero shift **kanal-bazlı ve sabittir**; iz-bazlı (trace-by-trace)
+  otomatik kaydırma bu sprintte kesinlikle uygulanmadı.
+- Otomatik time-zero pick'i **fiziksel yüzey zamanı değildir** — her
+  sonuçta `TIME_ZERO_REFERENCE_WARNING` bulunur. Detay:
+  [[06_DECISIONS/ADR_002_TimeZero_Reference_and_Shift_Policy]].
+- DC offset her (slice, channel) trace'ini bağımsız düzeltir; tek global ofset yok.
+- `removed_component := input - output` (her iki işlemde de tam eşitlik).
+- Sample Geolocations blok kaydının iç yapısı header'da tanımlı DEĞİL; gerçek dosyadan doğrulanarak çıkarıldı.
+- **(Sprint 2.1)** `overflow_policy: Literal["error","clip"]`, varsayılan
+  `"error"` — `max_shift_samples` aşılırsa veriye dokunulmadan hata verilir;
+  kırpma yalnızca açık opt-in. Bkz.
+  [[06_DECISIONS/ADR_003_Overflow_Policy_and_Padding_Aware_DC_Offset]].
+- **(Sprint 2.1)** `ProcessingResult.valid_mask` (şekil `(channels,
+  samples)`, bool, salt-okunur) — time-zero'nun padding bölgesini işaretler;
+  `correct_dc_offset(..., valid_mask=...)` ofset hesaplamasını VE çıkarmayı
+  bu maskeyle sınırlar, padding `fill_value`'da byte-bazında değişmeden
+  kalır.
+- **(Sprint 2.2)** `correct_time_zero()`'nun çıktı `time_ns`'i artık
+  time-zero-relative: `time_ns[target_sample] == 0.0`. `correct_dc_offset(
+  ..., window_reference="dataset_time")` (varsayılan), pencereyi bu eksene
+  göre çözer — bu, aynı ns penceresinin farklı `target_sample`
+  değerlerinde AYNI ham örnekleri seçmesini sağlar (target-invariance,
+  gerçek veride fark=0.0 olarak doğrulandı). Canonical politika:
+  `method="mean", window=[20,100) ns` — CLI varsayılanı, fonksiyona sabit
+  gömülü değil.
+- **(Sprint 3)** `contiguous_true_runs()` (`processing/common.py`),
+  hem dewow hem band-pass tarafından paylaşılır — bir kayan
+  pencere/filtre asla bir padding boşluğunu aşmaz, her ardışık geçerli
+  segment bağımsız işlenir.
+- **(Sprint 3)** Dewow pencere dönüşümü hiçbir zaman sessizce
+  yuvarlanmaz: istenen ve uygulanan pencere (çift→tek yuvarlama dahil)
+  her zaman ayrı ayrı `diagnostics`'e kaydedilir. Bkz.
+  [[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]].
+- **(Sprint 3)** Band-pass iki bağımsız yöntem sunar (Butterworth
+  zero-phase `sosfiltfilt`, Ormsby gerçek yamuk transfer fonksiyonu),
+  ikisi de sıfır-faz — pik-kayması + medyan-iz çapraz-korelasyon
+  gecikmesiyle hem sentetik hem gerçek veride doğrulandı (gecikme=0).
+  Bkz. [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]].
+- **(Sprint 3)** Dewow (D1-D4) ve band-pass (B1-B4) için aday parametre
+  karşılaştırmaları üretildi (`outputs/sprint03/`); kodun kendisi hiçbirini
+  otomatik olarak canonical seçmedi.
+- **(Sprint 3 Canonicalization, 2026-07-15)** Kullanıcı D2 (dewow) + B1
+  (band-pass)'i insan/jeofizik kararı olarak canonical seçti — kod
+  tarafından otomatik seçilmedi, sabit/adlandırılmış parametreler olarak
+  kodlandı (`sprint3_canonical.py`, yeni bir filtre algoritması YOK).
+  Yalnızca `Swath003_Array02.ogpr` için canonical. Bkz.
+  [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]].
+
+## Bilinen riskler
+- EPSG:32632 coğrafi olarak Orta Avrupa/İtalya'yı kapsar; gerçek saha bağlamı (Marmara Ereğlisi, Türkiye) ile uyuşmuyor olabilir.
+- Derinlik değerleri sadece metadata hız varsayımına (0.1 m/ns) dayanıyor.
+- **(Sprint 2.1'de çözüldü)** Gerçek dosyada eski varsayılan
+  `max_shift_samples=64` + `target_sample=0` ile 9/11 kanal sessizce
+  kırpılıyordu (bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-006,
+  resolved). Yeni varsayılan (`overflow_policy="error"`) bunu artık
+  sessizce yapmıyor.
+- **(Sprint 2.2'de mühendislik önerisiyle çözüldü)** `target_sample=0` vs
+  `16` — `target_sample=16` ölçülen trade-off'lara dayanarak öneri olarak
+  kaydedildi ve canonical çıktı üretildi; bu fiziksel bir kalibrasyon
+  iddiası DEĞİLDİR (bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-008).
+- **(Açık)** Mean vs median DC offset, gerçek veride bazı kanallarda işaret
+  değiştiriyor (bkz. ISSUE-009) — jeofizik ekibiyle doğrulanmamış.
+- **(Sprint 3 canonicalization'da çözüldü)** Hangi dewow penceresinin
+  (D1-D4) ve hangi band-pass aralığının (B1-B4) canonical olacağı artık
+  kullanıcının insan/jeofizik kararıyla çözüldü: D2 + B1 (bkz. ISSUE-010
+  resolved, ISSUE-011 resolved,
+  [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Bu seçim yalnızca
+  `Swath003_Array02.ogpr` için geçerlidir.
+- **(Sprint 3.1'de bulundu, belgelendi)** B2'nin geç-zaman (20-100ns)
+  penceresindeki ham medyan-iz gecikmesi (40 örnek) gerçek bir faz kayması
+  DEĞİLDİR — spektral farklılıktan kaynaklanan bir ölçüm sınırlamasıdır;
+  yetkili kanıt tam-segment lag'i (=0, her iki aday için). Bkz.
+  `outputs/sprint03_1/PHASE_METRICS_INTERPRETATION_NOTES.md`.
+- Detay: [[01_PROJECT_STATE/04_Risks_and_Limitations]]
+
+## Kesinlikle yapılmaması gerekenler
+- Ham `.ogpr` dosyalarını değiştirme/üzerine yazma.
+- Binary offset'leri koda sabit gömme.
+- CRS bilgisini doğrulanmış kabul etme veya otomatik reproject etme.
+- Otomatik time-zero pick'ini doğrulanmış fiziksel yüzey zamanı olarak sunma.
+- Sprint kapsamı dışındaki işlem algoritmalarını (background removal, gain, migration, F-K, vb.) uygulama.
+- Bir dewow veya band-pass adayını OTOMATİK olarak canonical seçme.
+- Tamamlanmamış özellikleri tamamlanmış gibi gösterme.
+
+Tam liste: proje kökündeki `CLAUDE.md`.
+
+## Bir sonraki görev
+Bir kod görevi DEĞİL: **kullanıcının kendi açık isteğiyle Sprint 4'ü
+tanımlaması** (bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]). D2/B1
+canonical seçilmiş olması, tek başına, Sprint 4'ü otomatik olarak AÇMAZ.
+
+## Önce okunması gereken bağlantılar
+1. Bu dosya
+2. [[01_PROJECT_STATE/01_Current_Project_State]]
+3. [[01_PROJECT_STATE/02_Next_Development_Sprint]]
+4. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]

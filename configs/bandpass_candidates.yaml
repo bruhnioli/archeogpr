@@ -1,0 +1,60 @@
+# Sprint 3 band-pass candidates -- QC comparison inputs only. None of these
+# is selected as canonical by this project; see
+# obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_03_Dewow_Bandpass.md and
+# outputs/sprint03/SPRINT3_REVIEW_REQUIRED.md.
+#
+# Band-pass candidates are run on top of ONE dewow candidate's output
+# (dewow_base_candidate) purely to have a common, controlled comparison
+# baseline -- this does NOT mean that dewow candidate is canonical.
+dewow_base_candidate: D2
+
+candidates:
+  - id: B1
+    label: butter_100_900
+    method: butterworth
+    lowcut_mhz: 100.0
+    highcut_mhz: 900.0
+    order: 4
+  - id: B2
+    label: butter_120_800
+    method: butterworth
+    lowcut_mhz: 120.0
+    highcut_mhz: 800.0
+    order: 4
+  - id: B3
+    label: ormsby_80_120_800_1000
+    method: ormsby
+    frequencies_mhz: [80.0, 120.0, 800.0, 1000.0]
+  - id: B4
+    label: ormsby_100_150_700_900
+    method: ormsby
+    frequencies_mhz: [100.0, 150.0, 700.0, 900.0]
+
+# Combined dewow+bandpass candidates: controlled pairs that separate the
+# effect of varying dewow window (C1-C3, fixed bandpass=B2) from varying
+# bandpass method/band (C4-C6, fixed dewow=D2) -- not all 4x4 combinations.
+combined_candidates:
+  - id: C1
+    label: D1_B2
+    dewow: D1
+    bandpass: B2
+  - id: C2
+    label: D2_B2
+    dewow: D2
+    bandpass: B2
+  - id: C3
+    label: D3_B2
+    dewow: D3
+    bandpass: B2
+  - id: C4
+    label: D2_B1
+    dewow: D2
+    bandpass: B1
+  - id: C5
+    label: D2_B3
+    dewow: D2
+    bandpass: B3
+  - id: C6
+    label: D2_B4
+    dewow: D2
+    bandpass: B4
