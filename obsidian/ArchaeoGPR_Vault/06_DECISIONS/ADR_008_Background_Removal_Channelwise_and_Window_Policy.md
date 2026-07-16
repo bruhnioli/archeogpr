@@ -211,6 +211,103 @@ method and without starting Gain.
    (threshold `< 0.3`, documented, not a physical claim) -- on this
    dataset, A1 and A2 both trigger this conflict.
 
+## Sprint 4A.2 Correction (2026-07-16)
+
+A second self-audit (of Sprint 4A.1's own paired-control experiment) found
+that the `localized_hyperbola` scenario's synthetic target was, in
+practice, indistinguishable from a flat (rectangular) event -- not a
+scientific finding, a synthetic-data-generation bug. Fixed on the same PR
+(`sprint-04a-background-removal`), without introducing a new filter
+method, without changing `remove_background()` itself, and without
+starting Gain.
+
+1. **The `localized_hyperbola` target was not actually curved.**
+   `_paired_control_profile()`'s hyperbola branch used a *fixed*
+   `curvature=0.03` with `target_length_traces=9` (max offset from the
+   apex = 4 traces): `depth_shift = round(0.03 * 4**2) = round(0.48) = 0`
+   for every trace -- the "hyperbola" was, in every real sense, a flat
+   9-trace rectangle. `curvature` is now derived from a requested maximum
+   shift and the target's own half-length instead of a fixed constant:
+   `curvature = requested_max_shift_samples / max_offset_traces**2`
+   (default `requested_max_shift_samples=12.0`, `target_length_traces=15`
+   → `max_offset_traces=7` → `curvature≈0.2449`). On the real dataset this
+   produces 7 distinct center-sample values across the 15 target traces
+   (depth shifts `0,0,1,2,4,6,9,12` by offset), a 12-sample apex-to-arm
+   shift, and an apex that is always the shallowest (minimum) center
+   sample -- comfortably satisfying every one of the Sprint 4A.2 numeric
+   requirements (≥5 target traces, ≥3 distinct center samples, ≥3-5 sample
+   apex-to-arm shift).
+2. **Retention metrics now use the target's REAL support, not a fixed
+   apex-centered window.** The old `_paired_control_retention_metrics()`
+   sliced every target shape with the same fixed `target_sample±4` sample
+   window -- for a genuinely curved hyperbola, this misses the arms
+   entirely (they are shifted up to 12 samples away). `_paired_control_
+   profile()` now also returns a real boolean `target_mask` (`(slices,
+   samples)`, True exactly where the target's own Hanning-tapered
+   contribution is nonzero -- a Hanning taper's own endpoints are exactly
+   0.0, so the mask covers every nonzero `target_before` position with no
+   false positives), `target_trace_bounds`, `target_sample_bounds`, and
+   `target_center_sample_by_trace`. Retention is now computed over this
+   real mask for the FULL target support, and separately for the apex
+   (the target trace with the minimum/shallowest center sample) and the
+   arms (every other target trace): `full_target_peak_retention`,
+   `full_target_mean_absolute_retention`, `full_target_energy_retention`,
+   `full_target_waveform_correlation`, `apex_retention`, `arm_retention`,
+   `edge_trace_retention`, `interior_target_retention`. Rectangular
+   targets use this exact same mask-based code path (their "apex"
+   degenerates to an arbitrary first target trace, since every rect trace
+   shares one center sample -- a documented degenerate case, not a
+   separate implementation).
+3. **A new validation figure,
+   `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`.** Panels: the known
+   `target_before` component; processed `target_after` for `sliding_mean`
+   and for `sliding_median` (both against the SAME profile draw, so they
+   are directly comparable); the real `target_mask`; the per-trace
+   center-sample trajectory (with the apex marked); and apex-vs-arm
+   retention bars for both methods. The title states the actual target
+   trace count, unique center-sample count, realized max shift, and
+   comparison window length -- the figure is itself the evidence that the
+   fix produced a genuinely curved target.
+4. **A0 (no background removal) -- a decision/QC-layer reference policy,
+   not a ninth filter candidate.** `_a0_reference_policy_metrics()`
+   returns fixed, definitional values (`overall_rms_retention_tendency`,
+   `waveform_correlation`, `spectral_retention`, `local_event_amplitude_
+   retention`, `paired_control_short_target_retention`, `paired_control_
+   long_target_retention` all `= 1.0`; `background_suppression = 0`;
+   `removed_coherent_event_risk_proxy = not_applicable`; `padding_safety
+   = unchanged`; `timing_preservation = "0 sample lag"`; `processing_
+   applied = False`) -- never measured, never a `ProcessingResult`, never
+   written to an NPZ. A0 appears ONLY in `BACKGROUND_FINAL_DECISION_
+   REQUIRED.md` (as the first row), `BACKGROUND_METRICS_SUMMARY.png`
+   (a gray reference bar in 7 of its 8 panels, separated from A1-A8 by a
+   dotted line; excluded from the `removed_coherent_event_risk_proxy`
+   panel, since A0 has no real removed component), and `candidate_
+   metrics.csv`. It is structurally excluded from `save_common_scale_
+   output_comparison()`/`_removed_comparison()` (both iterate
+   `candidates_info` only, which A0 never enters) and from `run_
+   background_candidates()` (config-driven from `configs/background_
+   candidates.yaml`, which defines A1-A8 only). Every "preservation-
+   favoring" candidate's `Engineering interpretation` text now also
+   states its own comparison against A0's fixed retention of 1.0
+   explicitly -- making clear that "preservation-favoring" is a RELATIVE
+   ranking among A1-A8 only, never a claim of preserving more of a target
+   than doing nothing at all.
+5. **The final decision report gains an A0 row and explicit disclaimers.**
+   `BACKGROUND_FINAL_DECISION_REQUIRED.md` now opens with: "A0 is the
+   no-background-removal reference.", "A0 is not a new filter method.",
+   a (data-checked, not hardcoded) statement that all A1-A8 candidates
+   strongly attenuate the paired-control long target on this dataset,
+   "High overall RMS retention does not imply long-target preservation.",
+   "Human reviewer may select \"no background removal\".", "No canonical
+   decision is made automatically.", and "Gain has not started." -- in
+   addition to the disclaimers already present since Sprint 4A.1.
+
+**This is a correction to the same architectural decision (channel-wise
+computation, four methods, no automatic canonical selection), not a new
+one -- it does not change which methods exist, does not add a ninth real
+filter, and does not resolve the canonical-selection question this ADR
+already leaves open.**
+
 ## Alternatives Considered
 - **Cross-channel background estimation (one shared background across all
   11 channels):** Rejected — explicitly forbidden by the Sprint 4A spec
@@ -352,16 +449,54 @@ method and without starting Gain.
   re-run confirmed all three hashes (raw `.ogpr`, Sprint 2 canonical,
   Sprint 3 canonical) unchanged.
 
+### Sprint 4A.2 validation (2026-07-16)
+- Fixed hyperbola profile confirmed directly: 15 target traces, 7 unique
+  center-sample values (`[100, 101, 102, 104, 106, 109, 112]`), realized
+  max shift 12 samples, apex trace centered at sample 100 (the shallowest)
+  -- comfortably exceeding every numeric threshold in the spec.
+- `target_mask` confirmed to exactly match `target_before`'s nonzero
+  support: no nonzero value outside the mask, no false positives inside
+  it (`tests/test_sprint4a_candidates.py::
+  test_target_mask_exactly_matches_nonzero_target_before`).
+- `full_target_energy_retention` confirmed to differ from what the retired
+  fixed apex-only window would have produced
+  (`test_full_target_metric_no_longer_uses_a_fixed_apex_window`); apex and
+  arm retention confirmed as separate, genuinely different numbers on the
+  real pipeline (`sliding_mean`: apex=0.603, arm=0.701; `sliding_median`:
+  apex=0.795, arm=0.869).
+- On the real dataset: A1/A2 (`preservation-favoring`) both now carry an
+  explicit textual comparison against A0's fixed retention of 1.0 in
+  `candidate_metrics.csv`'s `engineering_interpretation` column, in
+  addition to the existing `CONFLICT` flag; A0's own row appears first in
+  `BACKGROUND_FINAL_DECISION_REQUIRED.md` and in `candidate_metrics.csv`,
+  with `background_suppression=0`,
+  `overall_rms_retention_tendency=1`, `paired_control_short_target_
+  retention=1`, `paired_control_long_target_retention=1`.
+- `BACKGROUND_METRICS_SUMMARY.png` confirmed to show A0 as a gray
+  reference bar (separated by a dotted line) in 7 of its 8 panels, and
+  confirmed ABSENT from the `removed_coherent_event_risk_proxy` panel.
+- Confirmed A0 never produces a file whose name contains "A0" anywhere
+  under the comparison output tree, and never enters `candidates_info`
+  (`test_a0_never_produces_a_processing_result_or_npz_or_bscan_panel`);
+  confirmed `archaeogpr.processing.gain` does not exist as an importable
+  module (`test_gain_module_does_not_exist_and_report_confirms_gain_not_
+  started`).
+- 16 new tests in `tests/test_sprint4a_candidates.py`, existing 328 tests
+  unaffected -- 344/344 passed. `ruff format`/`ruff check`/`mypy src`
+  clean. Real CLI re-run confirmed all three hashes (raw `.ogpr`, Sprint 2
+  canonical, Sprint 3 canonical) unchanged.
+
 ## Related Files
 - `src/archaeogpr/processing/background.py`
 - `src/archaeogpr/qc/background.py`
 - `src/archaeogpr/export/sprint4a.py`
 - `src/archaeogpr/sprint4a_candidates.py` (Sprint 4A.1: common-scale
   montages, paired-control experiment, engineering interpretation,
-  corrected final decision report)
+  corrected final decision report; Sprint 4A.2: fixed hyperbola profile,
+  mask-based retention metrics, A0 reference policy)
 - `src/archaeogpr/cli.py` (`background`, `sprint4a-candidates` subcommands)
 - `configs/background_candidates.yaml`
-- `tests/test_sprint4a_candidates.py` (Sprint 4A.1, new)
+- `tests/test_sprint4a_candidates.py` (Sprint 4A.1 + 4A.2)
 - `tests/test_background.py`, `tests/test_background_qc.py`,
   `tests/test_sprint4a_pipeline.py`, `tests/test_sprint4a_real_integration.py`
 - `outputs/sprint04a/`

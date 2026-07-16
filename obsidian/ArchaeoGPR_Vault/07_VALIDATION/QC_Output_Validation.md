@@ -623,6 +623,65 @@ retention`, `paired_control_long_target_retention`, `engineering_
 interpretation`). Tüm PNG'ler finite piksellerle açıldı. Tüm CSV'ler
 `pandas` ile okundu.
 
+## Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (aynı komut, düzeltilmiş kod). Girdi
+NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2 canonical NPZ hash'i ÖNCEKİ
+Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş kaldı (deterministik).
+
+### `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png` (yeni, `background_candidates/comparison/`)
+- Oluştu: Evet (155,864 byte, 1960×1260 piksel), tüm piksel finite.
+- Görsel/programatik denetim: 6 panel — `target_before` gerçek bir
+  parabolik yay gösteriyor (Sprint 4A.1'in düz olayına KIYASLA net bir
+  fark); `target_after` (sliding_mean/sliding_median) yayın şeklini genel
+  olarak koruyor ama kollarda görünür sönümleme/negatif yan-lob var
+  (sliding_mean'de daha güçlü); `target_mask` yayın gerçek desteğini
+  birebir örtüyor; merkez-sample yörüngesi 15 trace boyunca simetrik bir
+  V-şekli çiziyor, apex (sample=100) noktalı çizgiyle işaretli; apex-vs-kol
+  çubukları iki yöntem için de görünür şekilde farklı (sliding_mean:
+  apex=0.603, arm=0.701; sliding_median: apex=0.795, arm=0.869). Başlık:
+  "15 target traces, 7 unique center samples, max shift 12 samples,
+  comparison window 15 traces" — programatik olarak da doğrulandı.
+- `paired_control_target_attenuation.csv`'nin `localized_hyperbola`
+  satırlarında (`hyperbola_unique_center_sample_count=7`, `hyperbola_
+  realized_max_shift_samples=12.0`) tam olarak eşleşiyor.
+
+### `candidate_metrics.csv` (güncellenmiş, A0 satırı eklendi)
+- 9 satır (A0 + A1-A8), 25 kolon — programatik olarak doğrulandı. İlk
+  satır `id=A0`, `type=reference_policy`, `processing_applied=False`,
+  `overall_rms_retention_tendency=1.0`, `background_suppression=0.0`,
+  `paired_control_short_target_retention=1.0`, `paired_control_long_
+  target_retention=1.0`, `removed_coherent_event_risk_proxy_w5=not_
+  applicable`. A1/A2'nin `engineering_interpretation` metninde artık A0'a
+  karşı açık bir karşılaştırma cümlesi var (Sprint 4A.1'in `CONFLICT`
+  bayrağına ek olarak).
+
+### `BACKGROUND_METRICS_SUMMARY.png` (güncellenmiş, 172,972 byte)
+- Görsel/programatik denetim: 8 panelin 7'sinde ("removed_coherent_event_
+  risk_proxy" HARİÇ) A1-A8'den ayrı, gri, noktalı çizgiyle bölünmüş bir A0
+  çubuğu var, hepsi 1.0'da (background_suppression paneli hariç, 0'da).
+  `paired_control_long_target_retention` panelinde A0'ın çubuğu (1.0) A1-
+  A8'in tümünden (≈0) görsel olarak çarpıcı biçimde farklı — Sprint 4A.1'in
+  bulgusunu (hiçbir aday uzun hedefi korumuyor) doğrudan A0 ile karşılaştırarak
+  daha da netleştiriyor.
+
+### `BACKGROUND_FINAL_DECISION_REQUIRED.md` (A0 satırı + yeni disclaimer'lar)
+Programatik olarak doğrulandı: A0 tablonun İLK satırı; 7 gerekli disclaimer
+satırının hepsi mevcut ("A0 is the no-background-removal reference.", "A0
+is not a new filter method.", tüm A1-A8'in paired-control uzun hedefi
+güçlü şekilde zayıflattığı ifadesi — bu veri setinde `< 0.3` eşiği tüm 8
+adayda gerçekten sağlandığı için veri-bazlı cümle tetiklendi —, "High
+overall RMS retention does not imply long-target preservation.", "Human
+reviewer may select \"no background removal\".", "No canonical decision
+is made automatically.", "Gain has not started."). A0 satırının hiçbir
+sütununda bir `ProcessingResult`'tan türetilmiş bir değer yok (hepsi sabit).
+
+### Programatik denetim (Sprint 4A.2, genel)
+`background_candidates/{A1_global_mean,...,A8_sliding_median_150m}/`
+klasörlerinin hiçbirinde `A0` içeren bir dosya/klasör adı YOK (aranıp
+doğrulandı). Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical hash'leri
+üçü de Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş.
+
 ## İlgili notlar
 [[Test_Results]], [[Parser_Validation]], [[04_DATASETS/Swath003_Array02]],
 [[Sprint_02_TimeZero_DCOffset]], [[Sprint_02_1_TimeZero_DCOffset_Review]],

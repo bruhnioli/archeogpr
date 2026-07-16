@@ -16,6 +16,7 @@ archaeological claim.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -409,6 +410,42 @@ def run_synthetic_risk_experiments(output_dir: Path) -> dict[str, Any]:
 # ======================================================================
 
 
+@dataclass(frozen=True)
+class PairedControlProfile:
+    """Everything needed to isolate and evaluate one synthetic target's own retention.
+
+    ``target_mask`` is a ``(slices_count, samples_count)`` boolean array,
+    True exactly where the target's own amplitude contribution is nonzero
+    (a Hanning taper's own endpoints are exactly 0.0, so they are excluded
+    -- ``target_before`` is exactly zero everywhere ``target_mask`` is
+    False, and ``target_mask`` covers every nonzero ``target_before``
+    position). ``target_center_sample_by_trace`` holds each target trace's
+    own center/peak sample, and ``-1`` for every trace outside the target
+    -- this identifies the hyperbola's apex (its minimum value among
+    target traces, per Sprint 4A.2: "apex is the shallowest sample") versus
+    its arms (every other target trace). ``shape_diagnostics`` records how
+    a hyperbola's curvature was derived and what it actually produced
+    (Sprint 4A.2 -- see ``_paired_control_profile``).
+    """
+
+    control: np.ndarray
+    with_target: np.ndarray
+    target_mask: np.ndarray
+    target_trace_bounds: tuple[int, int]
+    target_sample_bounds: tuple[int, int]
+    target_center_sample_by_trace: np.ndarray
+    shape_diagnostics: dict[str, Any]
+
+
+#: Sprint 4A.2 default: the hyperbola's outermost trace is shifted this many
+#: samples away from the apex. A *fixed* curvature constant combined with a
+#: short target can round every depth_shift to 0 (the Sprint 4A.1 bug this
+#: constant fixes) -- deriving curvature from this value and the target's
+#: own half-length instead guarantees a real, measurable curve regardless
+#: of target_length_traces.
+_HYPERBOLA_DEFAULT_MAX_SHIFT_SAMPLES = 12.0
+
+
 def _paired_control_profile(
     rng: np.random.Generator,
     slices_count: int,
@@ -420,71 +457,163 @@ def _paired_control_profile(
     background_amplitude: float = 200.0,
     target_amplitude: float = 600.0,
     noise_scale: float = 15.0,
-) -> tuple[np.ndarray, np.ndarray, int, int]:
+    requested_max_shift_samples: float = _HYPERBOLA_DEFAULT_MAX_SHIFT_SAMPLES,
+) -> PairedControlProfile:
     """Build a paired (control, with_target) pair sharing one background+noise realization.
 
-    Returns ``(control, with_target, target_start, target_end)``, all
-    ``(slices, samples)`` float64 arrays except the two integer trace
-    indices bounding the target's along-track extent. ``target_shape``
-    is ``"rect"`` (a flat-topped, sample-axis-tapered block, constant
-    across the target's traces -- a "long horizontal reflection" style
-    event) or ``"hyperbola"`` (sample position varies with trace index,
-    curving away from an apex at the target's center -- a localized,
-    curved event).
+    ``target_shape`` is ``"rect"`` (a flat-topped, sample-axis-tapered
+    block, the same depth across every target trace -- a "long horizontal
+    reflection" style event) or ``"hyperbola"`` (sample center genuinely
+    varies with trace index, curving away from an apex -- a localized,
+    curved event; Sprint 4A.2). For ``"hyperbola"``, ``curvature`` is
+    derived as ``requested_max_shift_samples / max_offset_traces**2``
+    (``max_offset_traces`` = the trace distance from the apex to the
+    target's own edge) rather than a fixed constant, guaranteeing the
+    outermost trace is shifted by (approximately) ``requested_max_shift_
+    samples`` regardless of ``target_length_traces`` -- a fixed curvature
+    with a short target can round every ``depth_shift`` to 0, producing a
+    practically flat "hyperbola" (the Sprint 4A.1 bug this fixes). Raises
+    ``ValueError`` rather than silently clipping if the target would
+    exceed the profile's own trace or sample bounds.
     """
     background = background_amplitude * np.sin(np.linspace(0.0, 4 * np.pi, samples_count))
     noise = rng.normal(scale=noise_scale, size=(slices_count, samples_count))
     control = np.tile(background, (slices_count, 1)) + noise
     with_target = control.copy()
+    target_mask = np.zeros((slices_count, samples_count), dtype=bool)
+    center_sample_by_trace = np.full(slices_count, -1, dtype=int)
 
     target_start = max(0, slices_count // 2 - target_length_traces // 2)
     target_end = min(slices_count, target_start + target_length_traces)
+    if target_end <= target_start:
+        raise ValueError(f"target_length_traces={target_length_traces} produced an empty target range")
+
+    shape_diagnostics: dict[str, Any] = {"target_shape": target_shape}
+    sample_lo_bound = samples_count
+    sample_hi_bound = 0
+
+    def _apply_taper(trace_index: int, center: int) -> None:
+        nonlocal sample_lo_bound, sample_hi_bound
+        lo, hi = center - 4, center + 5
+        if lo < 0 or hi > samples_count:
+            raise ValueError(
+                f"target at trace {trace_index} (center sample={center}) exceeds sample bounds "
+                f"[0, {samples_count}) -- move target_sample away from the profile edge or reduce "
+                "requested_max_shift_samples"
+            )
+        taper = np.hanning(9)
+        with_target[trace_index, lo:hi] += target_amplitude * taper
+        target_mask[trace_index, lo + np.flatnonzero(taper != 0)] = True
+        center_sample_by_trace[trace_index] = center
+        sample_lo_bound = min(sample_lo_bound, lo)
+        sample_hi_bound = max(sample_hi_bound, hi)
 
     if target_shape == "rect":
-        taper = np.hanning(9)
-        lo, hi = max(0, target_sample - 4), min(samples_count, target_sample + 5)
-        with_target[target_start:target_end, lo:hi] += target_amplitude * taper[: hi - lo][np.newaxis, :]
-    elif target_shape == "hyperbola":
-        apex = (target_start + target_end - 1) / 2.0
-        curvature = 0.03
         for trace_index in range(target_start, target_end):
-            depth_shift = int(round(curvature * (trace_index - apex) ** 2))
-            center = target_sample + depth_shift
-            lo, hi = max(0, center - 4), min(samples_count, center + 5)
-            if hi > lo:
-                taper = np.hanning(hi - lo) if hi - lo > 1 else np.array([1.0])
-                with_target[trace_index, lo:hi] += target_amplitude * taper
+            _apply_taper(trace_index, target_sample)
+    elif target_shape == "hyperbola":
+        apex_trace = (target_start + target_end - 1) // 2
+        max_offset_traces = max(apex_trace - target_start, target_end - 1 - apex_trace)
+        if max_offset_traces < 1:
+            raise ValueError(
+                f"target_length_traces={target_length_traces} is too short for a hyperbola -- "
+                "need traces on both sides of the apex"
+            )
+        curvature = requested_max_shift_samples / max_offset_traces**2
+        for trace_index in range(target_start, target_end):
+            offset = trace_index - apex_trace
+            depth_shift = int(round(curvature * offset**2))
+            _apply_taper(trace_index, target_sample + depth_shift)
+
+        unique_centers = sorted({int(c) for c in center_sample_by_trace[target_start:target_end] if c >= 0})
+        shape_diagnostics.update(
+            {
+                "apex_trace_index": apex_trace,
+                "max_offset_traces": max_offset_traces,
+                "requested_max_shift_samples": requested_max_shift_samples,
+                "computed_curvature": curvature,
+                "realized_max_shift_samples": (
+                    (max(unique_centers) - target_sample) if unique_centers else 0
+                ),
+                "unique_center_sample_count": len(unique_centers),
+                "unique_center_samples": unique_centers,
+            }
+        )
     else:
         raise ValueError(f"target_shape must be 'rect' or 'hyperbola', got {target_shape!r}")
 
-    return control, with_target, target_start, target_end
+    return PairedControlProfile(
+        control=control,
+        with_target=with_target,
+        target_mask=target_mask,
+        target_trace_bounds=(target_start, target_end),
+        target_sample_bounds=(sample_lo_bound, sample_hi_bound),
+        target_center_sample_by_trace=center_sample_by_trace,
+        shape_diagnostics=shape_diagnostics,
+    )
+
+
+def _mask_subset_retention(
+    target_before: np.ndarray,
+    target_after: np.ndarray,
+    target_mask: np.ndarray,
+    row_selector: np.ndarray,
+) -> dict[str, float]:
+    """Retention ratios computed ONLY over ``target_mask`` positions within the selected trace rows.
+
+    ``target_before``/``target_after`` are boolean-indexed by the SAME
+    combined mask, so element-wise correspondence between the two is
+    preserved (numpy iterates a boolean mask in a fixed, consistent order
+    for same-shaped arrays).
+    """
+    row_mask = np.zeros(target_mask.shape[0], dtype=bool)
+    row_mask[row_selector] = True
+    combined_mask = target_mask & row_mask[:, np.newaxis]
+    before = target_before[combined_mask]
+    after = target_after[combined_mask]
+    before_abs_mean = float(np.abs(before).mean()) if before.size else 0.0
+    after_abs_mean = float(np.abs(after).mean()) if after.size else 0.0
+    before_energy = float((before**2).sum())
+    after_energy = float((after**2).sum())
+    before_peak = float(np.abs(before).max()) if before.size else 0.0
+    after_peak = float(np.abs(after).max()) if after.size else 0.0
+    correlation = (
+        float(np.corrcoef(before, after)[0, 1])
+        if before.size >= 2 and before.std() > 0 and after.std() > 0
+        else float("nan")
+    )
+    return {
+        "mean_absolute_retention": (after_abs_mean / before_abs_mean)
+        if before_abs_mean > 0
+        else float("nan"),
+        "energy_retention": (after_energy / before_energy) if before_energy > 0 else float("nan"),
+        "peak_retention": (after_peak / before_peak) if before_peak > 0 else float("nan"),
+        "waveform_correlation": correlation,
+    }
 
 
 def _paired_control_retention_metrics(
-    control: np.ndarray,
-    with_target: np.ndarray,
+    profile: PairedControlProfile,
     method: str,
     window_kwargs: dict[str, Any],
     edge_mode: str,
-    target_start: int,
-    target_end: int,
-    target_sample: int,
     *,
     sampling_time_ns: float = 0.5,
 ) -> dict[str, float]:
-    """Isolate the target-only before/after component and measure its retention.
+    """Isolate the target-only before/after component and measure its retention over its REAL support.
 
     ``target_before = with_target - control`` is the exact, known target
     component (by construction, since both share the same background+noise).
     ``target_after`` is the SAME subtraction applied to the two independently
     processed outputs -- this isolates what background removal did to the
     target-attributable signal specifically, cancelling out whatever it did
-    to the shared background/noise (linearly for mean, and still a
-    meaningful comparison for the nonlinear median case, since both runs see
-    an otherwise-identical trace-axis neighborhood).
+    to the shared background/noise. Sprint 4A.2: every metric here uses
+    ``profile.target_mask`` -- the target's actual per-trace support -- not
+    a fixed sample window; for a hyperbola, a fixed window centered on the
+    apex would silently miss the curved arms entirely.
     """
-    control_dataset = _wrap_synthetic(control, sampling_time_ns)
-    with_target_dataset = _wrap_synthetic(with_target, sampling_time_ns)
+    control_dataset = _wrap_synthetic(profile.control, sampling_time_ns)
+    with_target_dataset = _wrap_synthetic(profile.with_target, sampling_time_ns)
     kwargs: dict[str, Any] = {"method": method, "edge_mode": edge_mode, **window_kwargs}
     if method in ("global_mean", "global_median"):
         kwargs = {"method": method}
@@ -492,57 +621,41 @@ def _paired_control_retention_metrics(
     processed_control = remove_background(control_dataset, **kwargs)
     processed_with_target = remove_background(with_target_dataset, **kwargs)
 
-    target_before = with_target - control
+    target_before = profile.with_target - profile.control
     target_after = processed_with_target.dataset.amplitudes[:, 0, :].astype(
         np.float64
     ) - processed_control.dataset.amplitudes[:, 0, :].astype(np.float64)
 
-    samples_count = control.shape[1]
-    lo, hi = max(0, target_sample - 4), min(samples_count, target_sample + 5)
+    target_start, target_end = profile.target_trace_bounds
+    all_target_traces = np.arange(target_start, target_end)
+    full = _mask_subset_retention(target_before, target_after, profile.target_mask, all_target_traces)
 
-    def _retention(row_selector: slice | np.ndarray) -> dict[str, float]:
-        before = target_before[row_selector, lo:hi]
-        after = target_after[row_selector, lo:hi]
-        before_abs_mean = float(np.abs(before).mean()) if before.size else 0.0
-        after_abs_mean = float(np.abs(after).mean()) if after.size else 0.0
-        before_energy = float((before**2).sum())
-        after_energy = float((after**2).sum())
-        before_peak = float(np.abs(before).max()) if before.size else 0.0
-        after_peak = float(np.abs(after).max()) if after.size else 0.0
-        correlation = (
-            float(np.corrcoef(before.ravel(), after.ravel())[0, 1])
-            if before.size >= 2 and before.std() > 0 and after.std() > 0
-            else float("nan")
-        )
-        return {
-            "mean_absolute_amplitude_retention": (
-                (after_abs_mean / before_abs_mean) if before_abs_mean > 0 else float("nan")
-            ),
-            "energy_retention": (after_energy / before_energy) if before_energy > 0 else float("nan"),
-            "peak_amplitude_retention": (after_peak / before_peak) if before_peak > 0 else float("nan"),
-            "waveform_correlation": correlation,
-        }
-
-    full = _retention(slice(target_start, target_end))
-    center_index = (target_start + target_end) // 2
-    center = _retention(slice(center_index, center_index + 1))
-    edge_indices = np.array(sorted({target_start, max(target_start, target_end - 1)}))
-    edge = _retention(edge_indices)
-    margin = min(2, max(0, (target_end - target_start) // 2 - 1))
-    interior = (
-        _retention(slice(target_start + margin, target_end - margin))
-        if (target_end - target_start) > 2 * margin
+    centers = profile.target_center_sample_by_trace[all_target_traces]
+    apex_trace = int(all_target_traces[np.argmin(centers)])  # apex = shallowest (minimum) sample
+    apex = _mask_subset_retention(target_before, target_after, profile.target_mask, np.array([apex_trace]))
+    arm_traces = all_target_traces[all_target_traces != apex_trace]
+    arm = (
+        _mask_subset_retention(target_before, target_after, profile.target_mask, arm_traces)
+        if arm_traces.size
         else full
     )
 
+    edge_traces = np.array(sorted({target_start, target_end - 1}))
+    edge = _mask_subset_retention(target_before, target_after, profile.target_mask, edge_traces)
+    n = len(all_target_traces)
+    margin = min(2, max(0, n // 2 - 1))
+    interior_traces = all_target_traces[margin : n - margin] if n > 2 * margin else all_target_traces
+    interior = _mask_subset_retention(target_before, target_after, profile.target_mask, interior_traces)
+
     return {
-        "target_peak_amplitude_retention": full["peak_amplitude_retention"],
-        "target_mean_absolute_amplitude_retention": full["mean_absolute_amplitude_retention"],
-        "target_energy_retention": full["energy_retention"],
-        "target_waveform_correlation": full["waveform_correlation"],
-        "center_trace_retention": center["mean_absolute_amplitude_retention"],
-        "edge_trace_retention": edge["mean_absolute_amplitude_retention"],
-        "interior_target_retention": interior["mean_absolute_amplitude_retention"],
+        "full_target_peak_retention": full["peak_retention"],
+        "full_target_mean_absolute_retention": full["mean_absolute_retention"],
+        "full_target_energy_retention": full["energy_retention"],
+        "full_target_waveform_correlation": full["waveform_correlation"],
+        "apex_retention": apex["mean_absolute_retention"],
+        "arm_retention": arm["mean_absolute_retention"],
+        "edge_trace_retention": edge["mean_absolute_retention"],
+        "interior_target_retention": interior["mean_absolute_retention"],
     }
 
 
@@ -556,18 +669,161 @@ _PAIRED_CONTROL_SAMPLES_COUNT = 200
 _PAIRED_CONTROL_TARGET_SAMPLE = 100
 
 
+def _save_paired_control_hyperbola_validation_panel(
+    profile: PairedControlProfile,
+    window_traces: int,
+    output_path: Path,
+    *,
+    sampling_time_ns: float = 0.5,
+) -> Path:
+    """Sprint 4A.2: visual evidence that the localized-hyperbola target is genuinely curved.
+
+    Panels: the known ``target_before`` component; processed ``target_after``
+    for ``sliding_mean`` and for ``sliding_median`` (both against the SAME
+    ``profile``, so the two are directly comparable); the real boolean
+    ``target_mask``; the per-trace center-sample trajectory (proving the
+    center genuinely varies, with the apex marked); and apex-vs-arm retention
+    bars for both methods. The title states the actual target trace count,
+    unique center-sample count, realized max shift, and comparison window
+    length, so the figure is self-documenting evidence against the Sprint
+    4A.1 bug (a fixed curvature that rounded every depth_shift to 0).
+    """
+    control_dataset = _wrap_synthetic(profile.control, sampling_time_ns)
+    with_target_dataset = _wrap_synthetic(profile.with_target, sampling_time_ns)
+    target_before = profile.with_target - profile.control
+    target_start, target_end = profile.target_trace_bounds
+
+    processed_after: dict[str, np.ndarray] = {}
+    retention: dict[str, dict[str, float]] = {}
+    for method in ("sliding_mean", "sliding_median"):
+        window_kwargs: dict[str, Any] = {"window_traces": window_traces}
+        processed_control = remove_background(
+            control_dataset, method=method, edge_mode="reflect", **window_kwargs
+        )
+        processed_with_target = remove_background(
+            with_target_dataset, method=method, edge_mode="reflect", **window_kwargs
+        )
+        processed_after[method] = processed_with_target.dataset.amplitudes[:, 0, :].astype(
+            np.float64
+        ) - processed_control.dataset.amplitudes[:, 0, :].astype(np.float64)
+        retention[method] = _paired_control_retention_metrics(profile, method, window_kwargs, "reflect")
+
+    diagnostics = profile.shape_diagnostics
+    unique_center_count = diagnostics.get("unique_center_sample_count", 0)
+    realized_max_shift = diagnostics.get("realized_max_shift_samples", 0)
+
+    sample_lo_bound, sample_hi_bound = profile.target_sample_bounds
+    pad = 5
+    sample_lo = max(0, sample_lo_bound - pad)
+    sample_hi = min(profile.control.shape[1], sample_hi_bound + pad)
+    extent = (target_start, target_end, sample_hi, sample_lo)
+    clip = float(np.abs(target_before[target_start:target_end, sample_lo:sample_hi]).max()) or 1.0
+
+    fig = plt.figure(figsize=(14, 9))
+    grid = fig.add_gridspec(3, 2)
+
+    ax_before = fig.add_subplot(grid[0, 0])
+    ax_before.imshow(
+        target_before[target_start:target_end, sample_lo:sample_hi].T,
+        aspect="auto",
+        cmap="seismic",
+        vmin=-clip,
+        vmax=clip,
+        extent=extent,
+        origin="upper",
+    )
+    ax_before.set_title("target_before (known target component)")
+    ax_before.set_xlabel("Trace index")
+    ax_before.set_ylabel("Sample")
+
+    for grid_pos, method in zip((grid[0, 1], grid[1, 0]), ("sliding_mean", "sliding_median"), strict=True):
+        ax = fig.add_subplot(grid_pos)
+        ax.imshow(
+            processed_after[method][target_start:target_end, sample_lo:sample_hi].T,
+            aspect="auto",
+            cmap="seismic",
+            vmin=-clip,
+            vmax=clip,
+            extent=extent,
+            origin="upper",
+        )
+        ax.set_title(f"target_after, processed ({method})")
+        ax.set_xlabel("Trace index")
+        ax.set_ylabel("Sample")
+
+    ax_mask = fig.add_subplot(grid[1, 1])
+    ax_mask.imshow(
+        profile.target_mask[target_start:target_end, sample_lo:sample_hi].T,
+        aspect="auto",
+        cmap="gray_r",
+        vmin=0,
+        vmax=1,
+        extent=extent,
+        origin="upper",
+    )
+    ax_mask.set_title("target_mask (real target support)")
+    ax_mask.set_xlabel("Trace index")
+    ax_mask.set_ylabel("Sample")
+
+    ax_trajectory = fig.add_subplot(grid[2, 0])
+    trace_indices = np.arange(target_start, target_end)
+    centers = profile.target_center_sample_by_trace[target_start:target_end]
+    apex_trace = int(trace_indices[np.argmin(centers)])
+    ax_trajectory.plot(trace_indices, centers, marker="o", color="tab:blue")
+    ax_trajectory.axvline(apex_trace, color="black", linestyle="--", linewidth=0.8, label="apex")
+    ax_trajectory.invert_yaxis()
+    ax_trajectory.set_xlabel("Trace index")
+    ax_trajectory.set_ylabel("Center sample")
+    ax_trajectory.set_title("Center-sample trajectory (apex = shallowest sample)")
+    ax_trajectory.legend(fontsize=8)
+
+    ax_bars = fig.add_subplot(grid[2, 1])
+    bar_labels = ["apex_retention", "arm_retention"]
+    x = np.arange(len(bar_labels))
+    width = 0.35
+    for offset, method in zip((-width / 2, width / 2), ("sliding_mean", "sliding_median"), strict=True):
+        values = [retention[method][key] for key in bar_labels]
+        ax_bars.bar(x + offset, values, width=width, label=method)
+    ax_bars.set_xticks(list(x))
+    ax_bars.set_xticklabels(bar_labels)
+    ax_bars.axhline(0.0, color="black", linewidth=0.6)
+    ax_bars.set_ylabel("Mean-absolute retention (target-isolated)")
+    ax_bars.set_title("Apex vs. arm retention")
+    ax_bars.legend(fontsize=8)
+
+    fig.suptitle(
+        f"Paired-control localized hyperbola validation -- {target_end - target_start} target traces, "
+        f"{unique_center_count} unique center samples, max shift {realized_max_shift} samples, "
+        f"comparison window {window_traces} traces"
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.94))
+    fig.savefig(output_path, dpi=140)
+    plt.close(fig)
+    return output_path
+
+
 def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[str, Any]:
     """Paired-control (background+noise held identical) target-retention experiments.
 
     Covers, per the Sprint 4A.1 correction: target shorter/about-equal/longer
-    than a fixed sliding window and a localized hyperbola-like target, for
-    both ``sliding_mean`` and ``sliding_median``; a long-horizontal target for
-    both ``global_mean`` and ``global_median`` (global methods have no window
-    concept, so only the long-horizontal scenario applies to them); and a
-    window-length sweep (mirroring ``run_synthetic_risk_experiments``'s sweep,
-    but target-isolated) for both sliding methods. Writes
+    than a fixed sliding window, for both ``sliding_mean`` and
+    ``sliding_median``; a long-horizontal target for both ``global_mean`` and
+    ``global_median`` (global methods have no window concept, so only the
+    long-horizontal scenario applies to them); and a window-length sweep
+    (mirroring ``run_synthetic_risk_experiments``'s sweep, but
+    target-isolated) for both sliding methods. Writes
     ``paired_control_target_attenuation.csv`` and
     ``paired_control_window_length_vs_target_attenuation.png``.
+
+    Sprint 4A.2 adds a dedicated ``localized_hyperbola`` scenario, evaluated
+    separately from the rect-shaped scenario matrix above: ONE shared
+    hyperbola profile (one control/with_target draw) is scored by both
+    sliding methods, so the two methods' rows -- and the ``PAIRED_CONTROL_
+    HYPERBOLA_VALIDATION.png`` panel built from the same profile -- are
+    directly comparable rather than independently-drawn. See
+    ``_paired_control_profile`` for the curvature fix (Sprint 4A.1's fixed
+    ``curvature=0.03`` rounded every depth_shift to 0 for a short target,
+    making the "hyperbola" practically flat).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(20260716)
@@ -580,13 +836,12 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
         ("shorter_than_window", "rect", 5),
         ("approximately_equal_to_window", "rect", 15),
         ("longer_than_window", "rect", 45),
-        ("localized_hyperbola", "hyperbola", 9),
     ]
 
     rows: list[dict[str, Any]] = []
     for method in ("sliding_mean", "sliding_median"):
         for scenario_label, shape, target_length in scenarios:
-            control, with_target, target_start, target_end = _paired_control_profile(
+            profile = _paired_control_profile(
                 rng,
                 slices_count,
                 samples_count,
@@ -595,14 +850,10 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
                 target_sample=target_sample,
             )
             metrics = _paired_control_retention_metrics(
-                control,
-                with_target,
+                profile,
                 method,
                 {"window_traces": comparison_window_traces},
                 "reflect",
-                target_start,
-                target_end,
-                target_sample,
             )
             rows.append(
                 {
@@ -614,10 +865,50 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
                 }
             )
 
+    # Sprint 4A.2: localized hyperbola, one shared profile scored by both sliding methods.
+    hyperbola_target_length_traces = 15
+    hyperbola_profile = _paired_control_profile(
+        rng,
+        slices_count,
+        samples_count,
+        target_length_traces=hyperbola_target_length_traces,
+        target_shape="hyperbola",
+        target_sample=target_sample,
+        requested_max_shift_samples=_HYPERBOLA_DEFAULT_MAX_SHIFT_SAMPLES,
+    )
+    hyperbola_diagnostic_columns = {
+        f"hyperbola_{key}": value
+        for key, value in hyperbola_profile.shape_diagnostics.items()
+        if key != "target_shape"
+    }
+    for method in ("sliding_mean", "sliding_median"):
+        metrics = _paired_control_retention_metrics(
+            hyperbola_profile,
+            method,
+            {"window_traces": comparison_window_traces},
+            "reflect",
+        )
+        rows.append(
+            {
+                "method": method,
+                "scenario": "localized_hyperbola",
+                "target_length_traces": hyperbola_target_length_traces,
+                "window_traces": comparison_window_traces,
+                **metrics,
+                **hyperbola_diagnostic_columns,
+            }
+        )
+
+    hyperbola_validation_png = _save_paired_control_hyperbola_validation_panel(
+        hyperbola_profile,
+        comparison_window_traces,
+        output_dir / "PAIRED_CONTROL_HYPERBOLA_VALIDATION.png",
+    )
+
     # Long-horizontal scenario: run for every method, including global (no window).
     long_horizontal_length = 55
     for method in ("sliding_mean", "sliding_median", "global_mean", "global_median"):
-        control, with_target, target_start, target_end = _paired_control_profile(
+        profile = _paired_control_profile(
             rng,
             slices_count,
             samples_count,
@@ -630,9 +921,7 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
             if method in ("sliding_mean", "sliding_median")
             else {}
         )
-        metrics = _paired_control_retention_metrics(
-            control, with_target, method, window_kwargs, "reflect", target_start, target_end, target_sample
-        )
+        metrics = _paired_control_retention_metrics(profile, method, window_kwargs, "reflect")
         rows.append(
             {
                 "method": method,
@@ -653,7 +942,7 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
     sweep_rows: list[dict[str, Any]] = []
     for method in ("sliding_mean", "sliding_median"):
         for target_label, target_length in sweep_target_lengths.items():
-            control, with_target, target_start, target_end = _paired_control_profile(
+            profile = _paired_control_profile(
                 rng,
                 slices_count,
                 samples_count,
@@ -665,14 +954,10 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
                 if window_traces >= slices_count:
                     continue
                 metrics = _paired_control_retention_metrics(
-                    control,
-                    with_target,
+                    profile,
                     method,
                     {"window_traces": window_traces},
                     "reflect",
-                    target_start,
-                    target_end,
-                    target_sample,
                 )
                 sweep_rows.append(
                     {
@@ -694,7 +979,7 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
             ]
             ax.plot(
                 subset["window_traces"],
-                subset["target_energy_retention"],
+                subset["full_target_energy_retention"],
                 marker="o",
                 color=cmap(i),
                 label=target_label,
@@ -703,7 +988,7 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
         ax.set_title(method)
         ax.axhline(0.0, color="black", linewidth=0.6)
         ax.legend(fontsize=8)
-    axes[0].set_ylabel("Paired-control target energy retention (target-isolated)")
+    axes[0].set_ylabel("Paired-control target energy retention (target-isolated, full target-mask support)")
     fig.suptitle("Window length vs. paired-control target-energy retention (synthetic, target-isolated)")
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
     plot_path = output_dir / "paired_control_window_length_vs_target_attenuation.png"
@@ -713,6 +998,7 @@ def run_paired_control_target_attenuation_experiments(output_dir: Path) -> dict[
     return {
         "paired_control_target_attenuation_csv": csv_path,
         "paired_control_window_length_vs_target_attenuation_png": plot_path,
+        "paired_control_hyperbola_validation_png": hyperbola_validation_png,
         "rows": rows,
     }
 
@@ -737,7 +1023,7 @@ def compute_paired_control_retention_for_candidates(
     candidate counterpart of ``run_paired_control_target_attenuation_
     experiments`` -- it answers "how would THIS candidate's own method and
     window treat a short vs. a long synthetic target", using
-    ``target_energy_retention`` from :func:`_paired_control_retention_metrics`.
+    ``full_target_energy_retention`` from :func:`_paired_control_retention_metrics`.
     Global methods use no window (``window_kwargs={}``); their retention
     reflects the global-mean/median estimator itself, not a window choice.
     """
@@ -772,31 +1058,11 @@ def compute_paired_control_retention_for_candidates(
             {"window_traces": diag["applied_window_traces"]} if diag["applied_window_traces"] else {}
         )
 
-        control_s, with_target_s, target_start_s, target_end_s = short_profile
-        short_metrics = _paired_control_retention_metrics(
-            control_s,
-            with_target_s,
-            method,
-            window_kwargs,
-            edge_mode,
-            target_start_s,
-            target_end_s,
-            target_sample,
-        )
-        control_l, with_target_l, target_start_l, target_end_l = long_profile
-        long_metrics = _paired_control_retention_metrics(
-            control_l,
-            with_target_l,
-            method,
-            window_kwargs,
-            edge_mode,
-            target_start_l,
-            target_end_l,
-            target_sample,
-        )
+        short_metrics = _paired_control_retention_metrics(short_profile, method, window_kwargs, edge_mode)
+        long_metrics = _paired_control_retention_metrics(long_profile, method, window_kwargs, edge_mode)
         per_candidate[info["id"]] = {
-            "paired_control_short_target_retention": short_metrics["target_energy_retention"],
-            "paired_control_long_target_retention": long_metrics["target_energy_retention"],
+            "paired_control_short_target_retention": short_metrics["full_target_energy_retention"],
+            "paired_control_long_target_retention": long_metrics["full_target_energy_retention"],
         }
     return per_candidate
 
@@ -806,6 +1072,45 @@ def compute_paired_control_retention_for_candidates(
 #: control long-target retention falls below this is flagged as a conflict
 #: rather than silently trusted.
 _PAIRED_CONTROL_LONG_TARGET_CONFLICT_THRESHOLD = 0.3
+
+
+#: Sprint 4A.2: A0 is a decision/QC-layer REFERENCE POLICY, not a filter
+#: candidate. It never runs through ``remove_background()``, never produces
+#: a ``ProcessingResult``/NPZ, and never appears in a B-scan montage (no
+#: real dataset or removed_component exists for it). It exists only in the
+#: final decision table, the metrics summary panel, and ``candidate_metrics.
+#: csv`` -- so a human reviewer always sees "do nothing" as an explicit,
+#: literal option, never silently defaulted-past.
+_A0_ID = "A0"
+_A0_LABEL = "no_background_removal"
+
+
+def _a0_reference_policy_metrics() -> dict[str, Any]:
+    """The fixed, hand-authored A0 metric values (never measured -- see module note above).
+
+    Retention of an unprocessed signal against itself is exactly 1.0 by
+    definition; suppression of nothing removed is exactly 0; a filter that
+    was never applied has no timing shift, no removed component, and
+    cannot have corrupted padding. These are definitional constants, not
+    measurements, and must never be written into a ``ProcessingResult`` or
+    NPZ.
+    """
+    return {
+        "overall_rms_retention_tendency": 1.0,
+        "paired_control_short_target_retention": 1.0,
+        "paired_control_long_target_retention": 1.0,
+        "local_event_amplitude_retention": 1.0,
+        "removed_coherent_event_risk_proxy": "not_applicable",
+        "background_suppression": 0.0,
+        "waveform_correlation": 1.0,
+        "spectral_retention": 1.0,
+        "padding_safety": "unchanged",
+        "timing_preservation": "0 sample lag",
+        "removed_component": "not_applicable",
+        "processing_applied": False,
+        "type": "reference_policy",
+        "label": _A0_LABEL,
+    }
 
 
 def _engineering_interpretation_notes(
@@ -823,7 +1128,15 @@ def _engineering_interpretation_notes(
     RMS alone yet still strongly attenuates a long synthetic target, that
     disagreement is reported directly rather than presenting RMS retention
     as equivalent to archaeological-target preservation.
+
+    Sprint 4A.2: "preservation-favoring" candidates additionally get an
+    explicit textual comparison against A0 (no background removal, whose
+    own overall_rms_retention_tendency and paired-control retentions are
+    fixed at 1.0 by definition) -- this makes clear that the label is only
+    a RELATIVE ranking among A1-A8, never a claim of preserving more than
+    doing nothing at all.
     """
+    a0 = _a0_reference_policy_metrics()
     notes: dict[str, str] = {}
     for info in candidates_info:
         candidate_id = info["id"]
@@ -840,7 +1153,19 @@ def _engineering_interpretation_notes(
         ):
             notes[candidate_id] = (
                 f"{base}; CONFLICTS with paired_control_long_target_retention={long_retention:.3g} -- "
-                "high overall RMS retention does NOT mean long synthetic targets survive this candidate"
+                "high overall RMS retention does NOT mean long synthetic targets survive this candidate; "
+                f"compare against {_A0_ID} ({_A0_LABEL}): its own overall_rms_retention_tendency="
+                f"{a0['overall_rms_retention_tendency']:.3g} and paired_control_long_target_retention="
+                f"{a0['paired_control_long_target_retention']:.3g} are both >= this candidate's -- "
+                "'preservation-favoring' is only a ranking among A1-A8, not evidence of preserving "
+                "more than doing nothing"
+            )
+        elif category == "preservation-favoring":
+            notes[candidate_id] = (
+                f"{base}; compare against {_A0_ID} ({_A0_LABEL}): its own overall_rms_retention_tendency="
+                f"{a0['overall_rms_retention_tendency']:.3g} is still >= this candidate's "
+                f"({rms:.3g}) -- 'preservation-favoring' is only a ranking among A1-A8, not evidence of "
+                "preserving more than doing nothing"
             )
         else:
             notes[candidate_id] = base
@@ -1148,7 +1473,42 @@ def build_background_comparison(
     )
 
     # --- candidate_metrics*.csv ---------------------------------------------
-    overall_rows = []
+    # A0 (no background removal) is a hand-authored reference-policy row, never
+    # derived from a ProcessingResult -- it appears ONLY here, in the decision
+    # table, and in the metrics summary panel (Sprint 4A.2; see ADR-008).
+    a0 = _a0_reference_policy_metrics()
+    overall_rows = [
+        {
+            "id": _A0_ID,
+            "label": a0["label"],
+            "type": a0["type"],
+            "method": _A0_LABEL,
+            "processing_applied": a0["processing_applied"],
+            "applied_window_traces": None,
+            "applied_window_m": None,
+            "applied_window_nominal_length_m": None,
+            "applied_window_center_to_center_span_m": None,
+            "window_half_span_m": None,
+            "overall_rms_retention_tendency": a0["overall_rms_retention_tendency"],
+            "spectral_energy_retention_w5": a0["spectral_retention"],
+            "waveform_correlation_median_w5": a0["waveform_correlation"],
+            "local_event_amplitude_retention_w5": a0["local_event_amplitude_retention"],
+            "median_trace_cross_correlation_lag_w5": None,
+            "timing_preservation": a0["timing_preservation"],
+            "removed_input_rms_ratio_w5": a0["background_suppression"],
+            "removed_input_energy_ratio_w5": a0["background_suppression"],
+            "removed_coherent_event_risk_proxy_w5": a0["removed_coherent_event_risk_proxy"],
+            "removed_component": a0["removed_component"],
+            "padding_safety": a0["padding_safety"],
+            "paired_control_short_target_retention": a0["paired_control_short_target_retention"],
+            "paired_control_long_target_retention": a0["paired_control_long_target_retention"],
+            "engineering_category": "not_applicable (reference_policy, not ranked against A1-A8)",
+            "engineering_interpretation": (
+                f"{_A0_LABEL}: no filter applied; not a candidate; retention=1.0 and suppression=0 "
+                "by definition, not measurement"
+            ),
+        }
+    ]
     by_channel_rows = []
     by_window_rows = []
     categories = _engineering_category(candidates_info)
@@ -1163,7 +1523,9 @@ def build_background_comparison(
             {
                 "id": info["id"],
                 "label": info["label"],
+                "type": "candidate",
                 "method": info["method"],
+                "processing_applied": True,
                 "applied_window_traces": diag["applied_window_traces"],
                 "applied_window_m": diag["applied_window_m"],
                 "applied_window_nominal_length_m": diag["applied_window_nominal_length_m"],
@@ -1309,27 +1671,41 @@ def save_background_metrics_summary_panel(
     risk proxy, background suppression, waveform correlation, and spectral
     retention. None of these, individually or together, select a canonical
     candidate.
+
+    Sprint 4A.2: an ``A0`` (no background removal) reference bar is added to
+    every panel except ``removed_coherent_event_risk_proxy`` (A0 has no real
+    removed component, so that panel stays A1-A8 only), separated from the
+    real candidates by a dotted line -- A0 never appears in the B-scan
+    montages (no real dataset exists for it), so this panel and the final
+    decision table are the only places it can be visually compared at all.
     """
     ids = [info["id"] for info in candidates_info]
+    ids_with_a0 = ids + [_A0_ID]
     cmap = plt.get_cmap("tab10")
+    a0_color = "gray"
     w5 = window_label
+    a0 = _a0_reference_policy_metrics()
 
     panels = [
         (
             "overall_rms_retention_tendency",
-            [info["signal_preservation"][w5]["rms_retention"] for info in candidates_info],
+            [info["signal_preservation"][w5]["rms_retention"] for info in candidates_info]
+            + [a0["overall_rms_retention_tendency"]],
         ),
         (
             "paired_control_short_target_retention",
-            [paired_control_by_id[i]["paired_control_short_target_retention"] for i in ids],
+            [paired_control_by_id[i]["paired_control_short_target_retention"] for i in ids]
+            + [a0["paired_control_short_target_retention"]],
         ),
         (
             "paired_control_long_target_retention",
-            [paired_control_by_id[i]["paired_control_long_target_retention"] for i in ids],
+            [paired_control_by_id[i]["paired_control_long_target_retention"] for i in ids]
+            + [a0["paired_control_long_target_retention"]],
         ),
         (
             "local_event_amplitude_retention",
-            [info["signal_preservation"][w5]["local_event_amplitude_retention"] for info in candidates_info],
+            [info["signal_preservation"][w5]["local_event_amplitude_retention"] for info in candidates_info]
+            + [a0["local_event_amplitude_retention"]],
         ),
         (
             "removed_coherent_event_risk_proxy",
@@ -1337,31 +1713,41 @@ def save_background_metrics_summary_panel(
         ),
         (
             "background_suppression",
-            [info["removed_metrics"][w5]["removed_input_rms_ratio"] for info in candidates_info],
+            [info["removed_metrics"][w5]["removed_input_rms_ratio"] for info in candidates_info]
+            + [a0["background_suppression"]],
         ),
         (
             "waveform_correlation",
-            [info["signal_preservation"][w5]["waveform_correlation_median"] for info in candidates_info],
+            [info["signal_preservation"][w5]["waveform_correlation_median"] for info in candidates_info]
+            + [a0["waveform_correlation"]],
         ),
         (
             "spectral_retention",
-            [info["signal_preservation"][w5]["spectral_energy_retention"] for info in candidates_info],
+            [info["signal_preservation"][w5]["spectral_energy_retention"] for info in candidates_info]
+            + [a0["spectral_retention"]],
         ),
     ]
 
     fig, axes = plt.subplots(2, 4, figsize=(20, 9))
     for ax, (label, values) in zip(axes.ravel(), panels, strict=True):
-        ax.bar(ids, values, color=[cmap(i) for i in range(len(ids))])
+        has_a0 = label != "removed_coherent_event_risk_proxy"
+        panel_ids = ids_with_a0 if has_a0 else ids
+        colors = [cmap(i) for i in range(len(ids))] + ([a0_color] if has_a0 else [])
+        ax.bar(panel_ids, values, color=colors)
         ax.set_title(label, fontsize=9)
+        if has_a0:
+            ax.axvline(len(ids) - 0.5, color="black", linestyle=":", linewidth=0.6)
         ax.axhline(0.0, color="black", linewidth=0.6)
         ax.tick_params(axis="x", labelsize=8)
     fig.suptitle(
-        "Sprint 4A.1 background-removal metrics summary (W5 = 20-100 ns, post-direct-wave)\n"
-        "No candidate selected as canonical -- overall RMS retention is NOT archaeological-target "
-        "preservation; the removed coherent-event risk proxy is NOT a signal/noise classifier",
-        fontsize=11,
+        "Sprint 4A.2 background-removal metrics summary (W5 = 20-100 ns, post-direct-wave)\n"
+        f"{_A0_ID} = {_A0_LABEL} (reference policy, not a filter candidate) -- no candidate, "
+        "including A0, is selected as canonical\n"
+        "Overall RMS retention is NOT archaeological-target preservation; the removed "
+        "coherent-event risk proxy is NOT a signal/noise classifier (A0 has no removed component)",
+        fontsize=10.5,
     )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.89))
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.88))
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150)
@@ -1472,6 +1858,13 @@ def write_background_final_decision_required(
     ranking is reported as ``overall_rms_retention_tendency`` with an
     explicit rationale string (``interpretation_notes``) that flags any
     conflict against the paired-control long-target retention.
+
+    Sprint 4A.2 (see ADR-008 addendum): adds an ``A0`` row -- the
+    no-background-removal reference policy, fixed values from
+    :func:`_a0_reference_policy_metrics`, never a measured
+    ``ProcessingResult`` -- ahead of A1-A8, so a human reviewer sees "do
+    nothing" as an explicit, literal, always-available option rather than
+    one silently excluded from the comparison.
     """
     w5 = "W5"
     header = [
@@ -1494,7 +1887,41 @@ def write_background_final_decision_required(
         "Engineering interpretation",
         "Main risk",
     ]
-    rows = []
+    a0 = _a0_reference_policy_metrics()
+    rows = [
+        "| "
+        + " | ".join(
+            [
+                _A0_ID,
+                _A0_LABEL,
+                "n/a (no filter applied)",
+                "n/a",
+                "n/a",
+                "n/a",
+                f"{a0['background_suppression']:.4g}",
+                f"{a0['overall_rms_retention_tendency']:.4g}",
+                f"{a0['waveform_correlation']:.4g}",
+                f"{a0['spectral_retention']:.4g}",
+                f"{a0['local_event_amplitude_retention']:.4g}",
+                f"{a0['paired_control_short_target_retention']:.4g}",
+                f"{a0['paired_control_long_target_retention']:.4g}",
+                str(a0["removed_coherent_event_risk_proxy"]),
+                str(a0["padding_safety"]),
+                str(a0["timing_preservation"]),
+                (
+                    "reference_policy (no_background_removal); NOT ranked by "
+                    "overall_rms_retention_tendency and NOT compared against the too_weak/"
+                    "too_aggressive/preservation-favoring/balanced/suppression-favoring scale "
+                    "used for A1-A8"
+                ),
+                (
+                    "raw common-mode background, drift, and system noise are NOT suppressed; "
+                    "downstream analysis must tolerate the full unprocessed signal"
+                ),
+            ]
+        )
+        + " |"
+    ]
     for info in candidates_info:
         candidate_id = info["id"]
         diag = info["result"].diagnostics
@@ -1552,15 +1979,37 @@ def write_background_final_decision_required(
             + " |"
         )
 
+    long_retentions = [
+        paired_control_by_id[info["id"]]["paired_control_long_target_retention"] for info in candidates_info
+    ]
+    all_candidates_strongly_attenuate_long_target = bool(long_retentions) and all(
+        np.isfinite(r) and r < _PAIRED_CONTROL_LONG_TARGET_CONFLICT_THRESHOLD for r in long_retentions
+    )
+    long_target_disclaimer = (
+        "**All A1-A8 candidates strongly attenuate the paired-control long target "
+        f"(paired_control_long_target_retention < {_PAIRED_CONTROL_LONG_TARGET_CONFLICT_THRESHOLD:g} "
+        "for every candidate on this dataset).**"
+        if all_candidates_strongly_attenuate_long_target
+        else "**Paired-control long-target retention varies across A1-A8 on this dataset -- see the table.**"
+    )
+
     content = f"""# BACKGROUND_FINAL_DECISION_REQUIRED
 
 **Status: review_required**
 **No background-removal candidate has been selected as canonical.**
-**Gain has not been started.**
+**A0 is the no-background-removal reference.**
+**A0 is not a new filter method.**
+{long_target_disclaimer}
+**High overall RMS retention does not imply long-target preservation.**
+**Human reviewer may select "no background removal".**
+**No canonical decision is made automatically.**
+**Gain has not started.**
 **Overall RMS retention is not equivalent to archaeological-target preservation.**
 **Removed-component coherence (the "removed coherent-event risk proxy") is
 not a direct signal/noise classifier.**
-**Human review requires the common-scale B-scans, not this table alone.**
+**Human review requires the common-scale B-scans, not this table alone -- A0
+has no B-scan of its own (no processing was applied), so its row here and in
+`BACKGROUND_METRICS_SUMMARY.png` is the only place it can be compared.**
 
 | {" | ".join(header)} |
 |{"---|" * len(header)}
@@ -1602,21 +2051,41 @@ not a direct signal/noise classifier.**
   by that metric alone still strongly attenuates the paired-control long
   target -- this project does not present one metric as decisive when
   metrics disagree, and none of these labels select a canonical candidate
-  or transfer to a different dataset.
+  or transfer to a different dataset. Every "preservation-favoring"
+  candidate's interpretation text also states its comparison against A0
+  (see below) explicitly, so that ranking is never read as evidence of
+  preserving more than doing nothing.
+- **A0 (no_background_removal)** is a decision/QC-layer REFERENCE POLICY,
+  not a filter candidate and not a `ProcessingResult` -- it never ran
+  through `remove_background()`, has no dataset/removed_component/NPZ of
+  its own, and is excluded from the `engineering_category` ranking scale
+  entirely (that scale only ranks A1-A8 against each other). Its fixed
+  values (background suppression 0; every retention metric 1.0) are
+  definitional, not measured: an unprocessed signal is unconditionally
+  identical to itself. Because A1-A8 all attenuate the paired-control long
+  target far below A0's own retention of 1.0, "preservation-favoring"
+  among A1-A8 is a RELATIVE ranking only -- it is never a claim that any
+  processed candidate preserves more of a long target than doing nothing.
 
 ## What this report does NOT do
 
-It does not select a canonical background-removal candidate. It does not
-apply gain. It does not make any archaeological interpretation of removed
-or retained content. It does not equate overall RMS retention with
-archaeological-target preservation. It does not present removed-component
-coherence as a signal/noise classifier. Human/geophysical review of
-`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
+It does not select a canonical background-removal candidate -- including
+A0. It does not apply gain. It does not make any archaeological
+interpretation of removed or retained content. It does not equate overall
+RMS retention with archaeological-target preservation. It does not present
+removed-component coherence as a signal/noise classifier. It does not
+treat A0 as a new filter method -- A0 is the absence of one. A human
+reviewer remains free to select "no background removal" (A0) if the
+common-scale evidence does not justify any of A1-A8; this report makes no
+canonical decision automatically, for A0 or any other row. Human/
+geophysical review of `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
 `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`, and
-`BACKGROUND_METRICS_SUMMARY.png` (all common-scale across every candidate)
-is required before any candidate here is used for anything beyond QC
-comparison; `BACKGROUND_DECISION_PANEL.png`/`_DETAIL.png` are kept for
-historical compatibility only and use independent, non-comparable scales.
+`BACKGROUND_METRICS_SUMMARY.png` (all common-scale across every candidate;
+A0 appears only in the metrics summary panel and this table, since it has
+no B-scan of its own) is required before any candidate here is used for
+anything beyond QC comparison; `BACKGROUND_DECISION_PANEL.png`/`_DETAIL.png`
+are kept for historical compatibility only and use independent,
+non-comparable scales.
 """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

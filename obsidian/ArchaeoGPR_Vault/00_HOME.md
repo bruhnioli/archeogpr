@@ -10,11 +10,11 @@ doğrulayan ve QC çıktıları üreten araç seti) geliştirme bağlamını,
 mimari kararlarını ve doğrulama sonuçlarını tutar.
 
 ## Current Status
-- Current sprint: Sprint 4A ([[02_SPRINTS/Sprint_04A_Background_Removal]]) — **review_required**. Four background-removal methods implemented, 8 candidates (A1-A8) run on the real canonical Sprint 3 chain (D2+B1). **Sprint 4A.1 correction (2026-07-16, PR #1):** decision-QC fixed (window terminology, common-scale B-scan montages, removed the misleading `1 - coherence` "preservation" framing) and a new paired-control synthetic experiment found that every candidate destroys a long synthetic target almost completely regardless of RMS retention. **No candidate selected as canonical, Gain not started.** See [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+- Current sprint: Sprint 4A ([[02_SPRINTS/Sprint_04A_Background_Removal]]) — **review_required**. Four background-removal methods implemented, 8 candidates (A1-A8) run on the real canonical Sprint 3 chain (D2+B1). **Sprint 4A.1 correction (2026-07-16, PR #1):** decision-QC fixed (window terminology, common-scale B-scan montages, removed the misleading `1 - coherence` "preservation" framing) and a new paired-control synthetic experiment found that every candidate destroys a long synthetic target almost completely regardless of RMS retention. **Sprint 4A.2 correction (2026-07-16, same PR #1):** fixed a bug in that SAME paired-control experiment (the `localized_hyperbola` scenario was, in practice, a flat event) and added **A0** (no background removal) as an explicit, fixed-value reference row in the decision table/metrics panel/CSV — never a ninth filter candidate. **No candidate (including A0) selected as canonical, Gain not started.** See [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 - Project status: Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) and Sprint 3.1 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) are both **done** — D2 dewow + B1 band-pass canonical (see [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]). Sprint 4A's 8 background-removal candidates (`outputs/sprint04a/`) are historical QC evidence only — hiçbiri canonical değil.
-- Last updated: 2026-07-15
+- Last updated: 2026-07-16
 - Latest validated dataset: Swath003_Array02 ([[04_DATASETS/Swath003_Array02]])
-- Test status: 328/328 pytest passed (314 önceki + 14 yeni Sprint 4A.1 testi; gerçek dosya entegrasyon testi dahil — skip edilmedi, çünkü `data/raw/Swath003_Array02.ogpr` mevcut)
+- Test status: 342/342 pytest passed (328 önceki + 16 yeni Sprint 4A.2 testi; gerçek dosya entegrasyon testi dahil — skip edilmedi, çünkü `data/raw/Swath003_Array02.ogpr` mevcut)
 
 ## Navigation
 - [[01_PROJECT_STATE/00_Claude_Context]]
@@ -32,7 +32,7 @@ mimari kararlarını ve doğrulama sonuçlarını tutar.
 - [[09_REFERENCES/Reference_Index]]
 
 ## Current Priorities
-1. **Human review of common-scale output/removed B-scan montages and corrected paired-control metrics** (bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]) — `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`, `BACKGROUND_FINAL_DECISION_REQUIRED.md` — 8 background-removal adayından birini (veya hiçbirini) canonical seçmek. Bu karardan sonra da Gain otomatik olarak BAŞLAMAZ.
+1. **Human review of corrected hyperbola QC, A0 baseline, and common-scale real-data montages** (bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]) — `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`, `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`, `BACKGROUND_FINAL_DECISION_REQUIRED.md` — 8 background-removal adayından birini veya A0'ı ("hiç background removal yapmama") canonical seçmek. Bu karardan sonra da Gain otomatik olarak BAŞLAMAZ.
 2. EPSG:32632 CRS uyuşmazlığını saha ekibiyle doğrulamak (bkz. [[01_PROJECT_STATE/04_Risks_and_Limitations]]).
 3. Mean vs median DC offset belirsizliğini (bazı kanallarda işaret değişimi) jeofizik ekibiyle değerlendirmek (bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-009).
 
@@ -55,4 +55,5 @@ mimari kararlarını ve doğrulama sonuçlarını tutar.
 - **Sprint 3 Canonicalization (canonical, D2+B1):** `outputs/sprint03/canonical_D2_B1/sprint03_processed.npz`, `CANONICAL_PROCESSING_NOTE.md`, `canonical_parameters.json` — bkz. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
 - Sprint 4A (8 background-removal adayı, tarihsel QC kanıtı — **hiçbiri canonical değil**): `outputs/sprint04a/{background_candidates/{A1_global_mean,...,A8_sliding_median_150m},comparison}/`, `BACKGROUND_FINAL_DECISION_REQUIRED.md` — bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
 - **Sprint 4A.1 düzeltmesi (asıl karar dosyaları):** `outputs/sprint04a/BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png` (ortak-scale) — `BACKGROUND_DECISION_PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor
+- **Sprint 4A.2 düzeltmesi (düzeltilmiş hiperbol QC + A0 referansı):** `outputs/sprint04a/background_candidates/comparison/PAIRED_CONTROL_HYPERBOLA_VALIDATION.png` (yeni), `candidate_metrics.csv` (A0 satırı dahil, 9 satır), `BACKGROUND_METRICS_SUMMARY.png`/`BACKGROUND_FINAL_DECISION_REQUIRED.md` (A0 referans değerleriyle güncellendi) — A0 hiçbir zaman bir B-scan montajında görünmez
 - Older, superseded (preserved, not deleted): `outputs/sprint02/combined/` (Sprint 2), `outputs/sprint02_review/` (Sprint 2.1)

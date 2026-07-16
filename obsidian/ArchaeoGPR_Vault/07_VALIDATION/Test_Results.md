@@ -8,6 +8,89 @@ tags: [validation]
 Gerçek `pytest` terminal çıktıları, tarih sırasıyla (en yeni en üstte).
 Başarısız testler gizlenmez — şu ana kadar başarısız test kaydı yoktur.
 
+## 2026-07-16 (Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline, PR #1)
+
+Command:
+```bash
+pytest
+```
+
+Result:
+```text
+tests\test_data_model.py .....................                           [ 30%]
+tests\test_dc_offset.py ...............................                  [ 39%]
+tests\test_dewow.py ....................                                 [ 45%]
+tests\test_export_processed.py ....                                      [ 46%]
+tests\test_ogpr_reader.py .............                                  [ 50%]
+tests\test_processing_history.py .....                                   [ 51%]
+tests\test_real_ogpr_integration.py ..                                   [ 52%]
+tests\test_spectrum.py ........................                          [ 59%]
+tests\test_sprint2_real_integration.py ..                                [ 59%]
+tests\test_sprint3_1_decision_qc.py .......................              [ 66%]
+tests\test_sprint3_canonical.py ...............                          [ 71%]
+tests\test_sprint3_pipeline.py .....................                     [ 77%]
+tests\test_sprint3_real_integration.py .                                 [ 77%]
+tests\test_sprint4a_candidates.py ...........................            [ 85%]
+tests\test_sprint4a_pipeline.py ...                                      [ 86%]
+tests\test_sprint4a_real_integration.py ..                               [ 86%]
+tests\test_target_invariance.py .....                                    [ 88%]
+tests\test_time_zero.py ........................................         [100%]
+
+342 passed in 175.30s (0:02:55)
+```
+
+328 önceki test hiç bozulmadı (2'si -- `test_run_all_sprint4a_candidates_
+synthetic_end_to_end`, `test_run_all_sprint4a_candidates_on_real_data` --
+Sprint 4A.2'nin tam gerekli disclaimer metnine, `Gain has not started.`,
+güncellendi; bu bir davranış değişikliği DEĞİL, Sprint 4A.1'in kendi eski
+`Gain has not been started.` ifadesinin yerini alması); `tests/
+test_sprint4a_candidates.py`'ye 16 yeni test eklendi: hiperbol geometrisi
+(≥3 farklı merkez sample, ≥3 örnek apex-kol farkı, apex=en sığ sample),
+sınır-aşımı `ValueError` (sessiz kırpma yok), `target_mask`'in `target_
+before`'un sıfır-olmayan desteğiyle tam örtüştüğü, full-target metriğin
+artık sabit bir apex-penceresinden hesaplanmadığı, apex/arm retention'ın
+ayrı ve genellikle farklı sayılar olduğu, dikdörtgen hedeflerin AYNI
+mask-tabanlı altyapıyı kullandığı, A0'ın sabit değerleri
+(retention=1, suppression=0), A0'ın nihai karar tablosunda ilk satır
+olarak bulunduğu, A0'ın hiçbir NPZ/candidates_info girdisi/B-scan paneli
+üretmediği, A0'ın metrics summary panelinde 7/8 panelde göründüğü ama
+`removed_coherent_event_risk_proxy`'de görünmediği, hiçbir adayın (A0
+dahil) canonical seçilmediği, `archaeogpr.processing.gain` modülünün
+var olmadığı, "preservation-favoring" adayların A0'a karşı açıkça
+karşılaştırıldığı.
+
+### Diğer kalite kontrolleri (Sprint 4A.2, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 2 dosya yeniden biçimlendirildi (yalnızca stil —
+`sprint4a_candidates.py`, `test_sprint4a_candidates.py`). `ruff check .`:
+`All checks passed!`. `mypy src/archaeogpr`: ilk çalıştırmada 4 hata
+(`_save_paired_control_hyperbola_validation_panel()`'da tip-belirsiz bir
+`dict[str, int]`'in `remove_background()`'a `**kwargs` ile geçirilmesi);
+`window_kwargs: dict[str, Any]` açık tip belirtimi eklenerek düzeltildi.
+Sonraki çalıştırma: `Success: no issues found in 39 source files`.
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A.2)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı — girdi hash'i (`2044dd8f...82fd026`), ham dosya hash'i
+(`66d840c3...b62a6`), Sprint 2 canonical hash'i (`b2770b5c...af5afe`)
+hepsi ÖNCEKİ Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş. Yeni
+`PAIRED_CONTROL_HYPERBOLA_VALIDATION.png` programatik + görsel olarak
+denetlendi (15 hedef trace, 7 benzersiz merkez sample, 12 örnek maksimum
+kayma, apex sample=100). `candidate_metrics.csv`'de A0 satırı ilk satır
+olarak doğrulandı (`background_suppression=0`, `overall_rms_retention_
+tendency=1`, `paired_control_short/long_target_retention=1`).
+`BACKGROUND_METRICS_SUMMARY.png` A0'ı 7/8 panelde gri referans çubuğu
+olarak gösteriyor, `removed_coherent_event_risk_proxy` panelinde
+göstermiyor. `BACKGROUND_FINAL_DECISION_REQUIRED.md` A0 satırını ve 7
+gerekli disclaimer satırının tümünü içeriyor. Tam detay:
+[[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
 ## 2026-07-16 (Sprint 4A.1 — Background Decision QC Correction, PR #1)
 
 Command:

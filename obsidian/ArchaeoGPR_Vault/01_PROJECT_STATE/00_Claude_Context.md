@@ -39,6 +39,11 @@ global_median/sliding_mean/sliding_median) implemente edildi, 8 aday
 (A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek veride
 çalıştırıldı. **Hiçbir aday canonical seçilmedi, Gain başlatılmadı** —
 bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+**Sprint 4A.2 (2026-07-16, PR #1):** `localized_hyperbola` sentetik
+hedefinin pratikte düz olduğu bulundu/düzeltildi (gerçek eğrilik, mask-
+tabanlı apex/arm retention), ve karar katmanına A0 ("hiç background
+removal yapmama") referans politikası eklendi — status hâlâ
+`review_required`.
 Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her ikisi de
 **done** — D2 dewow + B1 band-pass canonical (bkz.
@@ -95,11 +100,27 @@ durumları da `done` (bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
   `paired_control_long_target_retention` ≈ 0 — artık `Engineering
   interpretation`'da açık `CONFLICT` olarak işaretleniyor. Çekirdek
   background-removal implementasyonu DEĞİŞMEDİ, Gain başlatılmadı.
+- **Sprint 4A.2 (2026-07-16, aynı PR #1):** `_paired_control_profile()`'ın
+  `localized_hyperbola` dalı sabit `curvature=0.03` ile pratikte düz bir
+  olay üretiyordu (`depth_shift` her trace'te 0'a yuvarlanıyordu) —
+  düzeltildi: `curvature` artık bir istenen maksimum kaymadan türetiliyor,
+  gerçek bir boole `target_mask` döndürülüyor. `_paired_control_retention_
+  metrics()` artık sabit bir apex-penceresi yerine bu gerçek maskeyi
+  kullanıyor, apex/arm'ı ayrı raporluyor (`full_target_*`, `apex_
+  retention`, `arm_retention`). Yeni `PAIRED_CONTROL_HYPERBOLA_
+  VALIDATION.png`. Yeni **A0** (`_a0_reference_policy_metrics()`) —
+  dokuzuncu bir filtre DEĞİL, karar/QC katmanında sabit değerli bir
+  referans politikası (`overall_rms_retention_tendency=1`, `background_
+  suppression=0`, hiçbir NPZ/ProcessingResult yok) — nihai karar
+  tablosuna, metrics summary paneline ve `candidate_metrics.csv`'ye
+  eklendi. Çekirdek background-removal implementasyonu DEĞİŞMEDİ, Gain
+  başlatılmadı.
 
 ## Son doğrulanan test sonucu
-`pytest` → **328 passed, 0 failed, 0 skipped** (2026-07-16; 314 önceki +
-14 yeni Sprint 4A.1 testi). Gerçek dosya entegrasyon testleri çalıştı
-(skip edilmedi). Detay: [[07_VALIDATION/Test_Results]].
+`pytest` → **342 passed, 0 failed, 0 skipped** (2026-07-16; 328 önceki +
+16 yeni Sprint 4A.2 testi — bkz. `tests/test_sprint4a_candidates.py`).
+Gerçek dosya entegrasyon testleri çalıştı (skip edilmedi). Detay:
+[[07_VALIDATION/Test_Results]].
 
 ## Aktif dataset
 `Swath003_Array02.ogpr` — shape `(175, 11, 1024)`, float32, 600 MHz,
@@ -204,6 +225,15 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   `overall_rms_retention_tendency` (0.62-0.77) bu riski GİZLİYORDU. A1/A2
   bu çelişkiyi (`CONFLICT`) tetikliyor. Bu bir kod hatası değil, bilimsel
   bir bulgu.
+- **(Sprint 4A.2'de bulundu ve düzeltildi, 2026-07-16)** Sprint 4A.1'in
+  KENDİ `localized_hyperbola` sentetik senaryosu bir sentetik-veri-üretim
+  hatası içeriyordu (sabit `curvature=0.03` + kısa hedef → `depth_shift`
+  her yerde 0'a yuvarlanıyordu, yani "hiperbol" pratikte düz bir olaydı).
+  Bu bir jeofizik bulgu değil, düzeltilmiş bir kod hatasıydı — düzeltme
+  sonrası hiperbol gerçekten eğri (7 farklı merkez-sample, 12 örnek
+  maksimum kayma). "No background removal" (A0) artık insan reviewer için
+  geçerli, açıkça belgelenmiş bir karar seçeneği; background removal
+  canonical olmak ZORUNDA değil.
 - Detay: [[01_PROJECT_STATE/04_Risks_and_Limitations]]
 
 ## Kesinlikle yapılmaması gerekenler
@@ -219,14 +249,14 @@ Detay: [[04_DATASETS/Swath003_Array02]].
 Tam liste: proje kökündeki `CLAUDE.md`.
 
 ## Bir sonraki görev
-Bir kod görevi DEĞİL: **ortak-scale output/removed B-scan montajlarının
-ve düzeltilmiş paired-control metriklerinin insan incelemesi**
-(`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_
-COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`,
-`BACKGROUND_FINAL_DECISION_REQUIRED.md` — bkz.
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin
-(veya hiçbirinin) canonical seçilmesi, tek başına, Gain'i otomatik olarak
-BAŞLATMAZ.
+Bir kod görevi DEĞİL: **Human review of corrected hyperbola QC, A0
+baseline, and common-scale real-data montages.** (`BACKGROUND_OUTPUT_
+COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_
+CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`, `PAIRED_CONTROL_
+HYPERBOLA_VALIDATION.png`, `BACKGROUND_FINAL_DECISION_REQUIRED.md` — bkz.
+[[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin (veya
+A0'ın, "hiç background removal yapmama") canonical seçilmesi, tek başına,
+Gain'i otomatik olarak BAŞLATMAZ.
 
 ## Önce okunması gereken bağlantılar
 1. Bu dosya

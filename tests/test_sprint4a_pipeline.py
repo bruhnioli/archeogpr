@@ -134,7 +134,7 @@ def test_run_all_sprint4a_candidates_synthetic_end_to_end(dataset_factory, tmp_p
 
     final_decision_text = result["final_decision_path"].read_text(encoding="utf-8")
     assert "No background-removal candidate has been selected as canonical" in final_decision_text
-    assert "Gain has not been started" in final_decision_text
+    assert "Gain has not started" in final_decision_text
     # Sprint 4A.1 correction's exact required column set (spec section 8).
     for column in (
         "Candidate",

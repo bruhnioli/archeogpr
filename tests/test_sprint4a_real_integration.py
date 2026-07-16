@@ -193,7 +193,7 @@ def test_run_all_sprint4a_candidates_on_real_data(tmp_path):
     final_decision_text = result["final_decision_path"].read_text(encoding="utf-8")
     assert "Status: review_required" in final_decision_text
     assert "No background-removal candidate has been selected as canonical." in final_decision_text
-    assert "Gain has not been started." in final_decision_text
+    assert "Gain has not started." in final_decision_text
     assert "best candidate" not in final_decision_text.lower()
 
     # --- comparison outputs exist ------------------------------------------------

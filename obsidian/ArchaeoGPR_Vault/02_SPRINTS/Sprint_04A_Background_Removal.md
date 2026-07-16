@@ -27,6 +27,23 @@ completed:
 > bu çelişki artık `Engineering interpretation` kolonunda açıkça
 > `CONFLICT` olarak işaretleniyor. Detay: aşağıdaki "Sprint 4A.1" bölümü,
 > [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+>
+> **Sprint 4A.2 düzeltmesi (2026-07-16, aynı PR #1):**
+> `localized_hyperbola` sentetik hedefi, sabit `curvature=0.03` +
+> `target_length_traces=9` yüzünden pratikte DÜZ bir olaydı (`depth_shift`
+> her trace'te 0'a yuvarlanıyordu) — gerçek bir jeofizik bulgu değil, bir
+> sentetik-veri-üretim hatasıydı. Artık `curvature` istenen bir maksimum
+> kaymadan türetiliyor, gerçek bir boole `target_mask` döndürülüyor, ve
+> retention metrikleri sabit bir apex-penceresi yerine bu gerçek maskeyi
+> kullanıyor (apex/arm ayrı raporlanıyor). Yeni **A0 ("hiç background
+> removal yapmama")** — bir dokuzuncu filtre değil, karar/QC katmanında
+> sabit değerli bir referans politikası (`overall_rms_retention_
+> tendency=1`, `background_suppression=0`, hiçbir NPZ/ProcessingResult
+> yok) — nihai karar tablosuna, metrics summary paneline ve
+> `candidate_metrics.csv`'ye eklendi (B-scan montajlarına DEĞİL). "No
+> background removal" insan reviewer için geçerli bir karar olarak açıkça
+> belgelendi. Detay: aşağıdaki "Sprint 4A.2" bölümü,
+> [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
 ## Goal
 Yeni bir arka-plan-çıkarma (background removal) mühendislik kararı
@@ -299,6 +316,98 @@ hiç bozulmadı — toplam **328/328 passed**.
 **Gerçek CLI yeniden çalıştırıldı** (`outputs/sprint04a/`) — tüm hash'ler
 (ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical) değişmeden kaldı,
 aynı deterministik girdi/çıktı.
+
+## Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline (2026-07-16)
+PR #1 üzerinde, aynı branch'te (`sprint-04a-background-removal`). Çekirdek
+`remove_background()` implementasyonunu değiştirmeden, Sprint 4A.1'in
+KENDİ paired-control deneyindeki bir sentetik-veri hatasını ve nihai karar
+tablosundaki bir eksik referans noktasını (background removal
+YAPMAMAYI) düzeltir. Yeni bir filtre yöntemi geliştirilmedi, Gain'e
+başlanmadı, `main`'e doğrudan commit atılmadı.
+
+**Düzeltilen kusurlar:**
+1. **`localized_hyperbola` pratikte düz bir olaydı.** `_paired_control_
+   profile()`'ın hiperbol dalı sabit `curvature=0.03` kullanıyordu;
+   `target_length_traces=9` (apex'ten maksimum uzaklık = 4 trace) ile
+   `depth_shift = round(0.03 * 4**2) = round(0.48) = 0` — her trace'te
+   sıfır. Düzeltme: `curvature` artık istenen bir maksimum kaymadan
+   türetiliyor: `curvature = requested_max_shift_samples /
+   max_offset_traces**2` (varsayılan `requested_max_shift_samples=12.0`,
+   `target_length_traces=15` → `max_offset_traces=7` →
+   `curvature≈0.2449`). Gerçek veride bu, 15 hedef trace boyunca 7 farklı
+   sample-center değeri (`[100,101,102,104,106,109,112]`), 12 örnek
+   apex-kol kayması, ve apex'in her zaman en sığ (minimum) sample olması
+   üretiyor — istenen tüm sayısal eşikleri (≥5 trace, ≥3 farklı merkez,
+   ≥3-5 örnek apex-kol farkı) rahatça karşılıyor.
+2. **Retention metrikleri artık gerçek hedef desteğini kullanıyor, sabit
+   bir apex-penceresi DEĞİL.** `_paired_control_profile()` artık gerçek
+   bir boole `target_mask` (`(slices, samples)`, Hanning-taper'ın
+   sıfır-olmayan katkısının bulunduğu her yer — taper'ın kendi uç
+   noktaları tam sıfır olduğu için mask, `target_before`'un her
+   sıfır-olmayan değerini kapsıyor, hiçbir yanlış-pozitif yok),
+   `target_trace_bounds`, `target_sample_bounds`, ve `target_center_
+   sample_by_trace` döndürüyor. Retention artık bu gerçek mask üzerinden,
+   TÜM hedef desteği için, ve ayrıca apex (en sığ sample'a sahip hedef
+   trace'i) ile kollar (diğer tüm hedef trace'leri) için ayrı ayrı
+   hesaplanıyor: `full_target_peak_retention`, `full_target_mean_
+   absolute_retention`, `full_target_energy_retention`, `full_target_
+   waveform_correlation`, `apex_retention`, `arm_retention`, `edge_trace_
+   retention`, `interior_target_retention`. Dikdörtgen hedefler AYNI
+   mask-tabanlı kod yolunu kullanıyor (apex'i, her trace aynı merkez
+   sample'ı paylaştığı için gelişigüzel ilk hedef trace'e indirgeniyor —
+   belgeleniyor, ayrı bir uygulama DEĞİL).
+3. **Yeni doğrulama görseli:** `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`
+   (`background_candidates/comparison/`). Paneller: bilinen `target_
+   before`; `sliding_mean` ve `sliding_median` için işlenmiş `target_
+   after` (AYNI profil çekiminden, doğrudan karşılaştırılabilir); gerçek
+   `target_mask`; trace-bazlı merkez-sample yörüngesi (apex işaretli); her
+   iki yöntem için apex-vs-kol retention çubukları. Başlık gerçek hedef
+   trace sayısını, benzersiz merkez-sample sayısını, gerçekleşen maksimum
+   kaymayı, ve karşılaştırma penceresi trace sayısını belirtiyor.
+4. **A0 ("hiç background removal yapmama") — dokuzuncu bir filtre değil,
+   karar/QC katmanında sabit değerli bir referans politikası.**
+   `_a0_reference_policy_metrics()` sabit, tanımsal değerler döndürüyor
+   (`overall_rms_retention_tendency=1`, `waveform_correlation=1`,
+   `spectral_retention=1`, `local_event_amplitude_retention=1`,
+   `paired_control_short_target_retention=1`, `paired_control_long_
+   target_retention=1`, `background_suppression=0`, `removed_coherent_
+   event_risk_proxy=not_applicable`, `padding_safety=unchanged`,
+   `timing_preservation="0 sample lag"`, `processing_applied=False`) —
+   hiçbir zaman ölçülmüyor, hiçbir zaman bir `ProcessingResult`/NPZ
+   üretmiyor. A0 SADECE `BACKGROUND_FINAL_DECISION_REQUIRED.md`'de (ilk
+   satır), `BACKGROUND_METRICS_SUMMARY.png`'de (8 panelin 7'sinde gri bir
+   referans çubuğu, `removed_coherent_event_risk_proxy` panelinden hariç
+   — A0'ın gerçek bir removed component'i yok), ve `candidate_metrics.
+   csv`'de görünüyor; B-scan montajlarına asla girmiyor (`save_common_
+   scale_output_comparison()`/`_removed_comparison()` yalnızca
+   `candidates_info`'yu işliyor, A0 oraya hiç girmiyor). "Preservation-
+   favoring" etiketli her adayın `Engineering interpretation` metni artık
+   A0'ın sabit 1.0 retention'ına karşı açık bir karşılaştırma da içeriyor
+   — bu etiketin SADECE A1-A8 arasında GÖRECELİ bir sıralama olduğunu,
+   hiçbir zaman "hiçbir şey yapmamaktan daha fazla koruma" iddiası
+   olmadığını netleştiriyor.
+5. **Nihai karar raporuna A0 satırı ve yeni açık uyarılar eklendi.**
+   `BACKGROUND_FINAL_DECISION_REQUIRED.md` artık şunları da içeriyor:
+   "A0 is the no-background-removal reference.", "A0 is not a new filter
+   method.", (veri-bazlı, sabit-kodlanmamış) tüm A1-A8'in paired-control
+   uzun hedefi güçlü şekilde zayıflattığı ifadesi, "High overall RMS
+   retention does not imply long-target preservation.", "Human reviewer
+   may select \"no background removal\".", "No canonical decision is made
+   automatically.", "Gain has not started." — Sprint 4A.1'den beri var
+   olan uyarılara ek olarak.
+
+**Testler:** 16 yeni test eklendi (`tests/test_sprint4a_candidates.py`'de,
+mevcut testler yeni API'ye güncellendi) — hiperbol geometrisi/sınır
+kontrolü, mask doğruluğu, sabit-pencere metriğinin artık kullanılmadığının
+doğrulanması, apex/arm'ın ayrı metrik olduğu, A0'ın sabit değerleri, A0'ın
+NPZ/B-scan üretmediği, hiçbir adayın (A0 dahil) canonical seçilmediği,
+Gain modülünün var olmadığı. Mevcut 328 test hiç bozulmadı — toplam
+**342/342 passed** (bazı testler Sprint 4A.1'in eski `Gain has not been
+started.` metnini kontrol ediyordu, bu Sprint 4A.2'nin tam gerekli
+metnine — `Gain has not started.` — güncellendi).
+
+**Gerçek CLI yeniden çalıştırıldı** (`outputs/sprint04a/`) — tüm hash'ler
+(ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical) değişmeden kaldı.
 
 ## Decisions
 Bu sprintte hiçbir background-removal adayı canonical seçilmedi (kural

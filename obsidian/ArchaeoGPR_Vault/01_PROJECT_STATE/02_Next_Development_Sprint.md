@@ -28,13 +28,22 @@ tamamen yok ettiğini (`paired_control_long_target_retention` ≈
 0.00007-0.01) ortaya çıkardı. Bkz.
 [[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.1" bölümü.
 
-**Next action: Human review of common-scale output/removed B-scan montages and corrected paired-control metrics.**
+**Sprint 4A.2 düzeltmesi (2026-07-16, aynı PR #1):** Sprint 4A.1'in KENDİ
+`localized_hyperbola` sentetik senaryosunun pratikte düz bir olay olduğu
+bulundu ve düzeltildi (gerçek eğrilik + mask-tabanlı apex/arm retention +
+yeni `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`); karar katmanına **A0**
+("hiç background removal yapmama") sabit-değerli bir referans politikası
+olarak eklendi — nihai karar tablosunda, metrics summary panelinde ve
+`candidate_metrics.csv`'de. Bkz.
+[[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.2" bölümü.
 
-8 adaydan birinin (veya hiçbirinin) canonical seçilmesi, tek başına, bir
-sonraki sprinti (Gain veya başka bir işlem) BAŞLATMAZ — bu proje hiçbir
-sprintte kendi kendine bir sonraki sprinte geçmez. **Sprint 4B (Gain veya
-başka bir kapsam) henüz TANIMLANMADI ve kullanıcının kendi açık isteği
-olmadan BAŞLATILMAYACAK.**
+**Next action: Human review of corrected hyperbola QC, A0 baseline, and common-scale real-data montages.**
+
+8 adaydan birinin veya A0'ın ("hiç background removal yapmama") canonical
+seçilmesi, tek başına, bir sonraki sprinti (Gain veya başka bir işlem)
+BAŞLATMAZ — bu proje hiçbir sprintte kendi kendine bir sonraki sprinte
+geçmez. **Sprint 4B (Gain veya başka bir kapsam) henüz TANIMLANMADI ve
+kullanıcının kendi açık isteği olmadan BAŞLATILMAYACAK.**
 
 Detay: [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
 `outputs/sprint04a/BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
@@ -42,11 +51,17 @@ Detay: [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
 `outputs/sprint04a/BACKGROUND_METRICS_SUMMARY.png`,
 `outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md`,
 `outputs/sprint04a/background_candidates/comparison/
+PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`,
+`outputs/sprint04a/background_candidates/comparison/
 paired_control_target_attenuation.csv`,
+`outputs/sprint04a/background_candidates/comparison/candidate_metrics.csv`
+(A0 satırı dahil),
 `outputs/sprint04a/background_candidates/comparison/BACKGROUND_REVIEW_REQUIRED.md`,
 [[02_SPRINTS/Sprint_04A_Background_Removal]]. `BACKGROUND_DECISION_
 PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor ama artık asıl
-karar dosyaları DEĞİL.
+karar dosyaları DEĞİL. **"No background removal" (A0), insan reviewer
+için geçerli, açıkça belgelenmiş bir karar seçeneğidir — background
+removal canonical olmak ZORUNDA değildir.**
 
 ---
 
@@ -80,6 +95,10 @@ isteğiyle netleşecektir.
   koruması ile eşdeğer saymak — Sprint 4A.1'in paired-control deneyi bu
   veri setinde tam tersini gösterdi (A1/A2 yüksek RMS retention ama
   paired-control uzun-hedef retention ≈ 0).
+- A0'ı ("hiç background removal yapmama") otomatik olarak canonical
+  seçmek veya A1-A8'e göre otomatik olarak "daha iyi" saymak — A0 sadece
+  bir referans noktasıdır, kullanıcının kendi kararı olmadan hiçbir satır
+  (A0 dahil) canonical DEĞİLDİR.
 - Herhangi bir anomali/arkeolojik yorum yapmak.
 
 ## İlgili notlar
