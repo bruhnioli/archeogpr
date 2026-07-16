@@ -34,16 +34,16 @@ altyapısı + iki temel sinyal işleme modülü (time-zero, DC offset) kuruldu.
 
 ## Aktif sprint
 **Sprint 4A** ([[02_SPRINTS/Sprint_04A_Background_Removal]]) —
-**review_required**. Dört background-removal yöntemi (global_mean/
-global_median/sliding_mean/sliding_median) implemente edildi, 8 aday
-(A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek veride
-çalıştırıldı. **Hiçbir aday canonical seçilmedi, Gain başlatılmadı** —
-bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
-**Sprint 4A.2 (2026-07-16, PR #1):** `localized_hyperbola` sentetik
-hedefinin pratikte düz olduğu bulundu/düzeltildi (gerçek eğrilik, mask-
-tabanlı apex/arm retention), ve karar katmanına A0 ("hiç background
-removal yapmama") referans politikası eklendi — status hâlâ
-`review_required`.
+**done** (2026-07-16'da kapandı). Dört background-removal yöntemi
+(global_mean/global_median/sliding_mean/sliding_median) implemente
+edildi, 8 aday (A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde
+gerçek veride çalıştırıldı. Sprint 4A.2, hiperbol QC hatasını düzeltti
+ve karar katmanına A0 ("hiç background removal yapmama") referans
+politikasını ekledi. **İnsan/jeofizik nihai kararı: canonical policy =
+A0 — A1-A8'den hiçbiri canonical seçilmedi, canonical zincir Sprint 3
+D2+B1'de kaldı, Gain başlatılmadı** — bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her ikisi de
 **done** — D2 dewow + B1 band-pass canonical (bkz.
@@ -117,8 +117,11 @@ durumları da `done` (bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
   başlatılmadı.
 
 ## Son doğrulanan test sonucu
-`pytest` → **342 passed, 0 failed, 0 skipped** (2026-07-16; 328 önceki +
-16 yeni Sprint 4A.2 testi — bkz. `tests/test_sprint4a_candidates.py`).
+`pytest` → **344 passed, 0 failed, 0 skipped** (2026-07-16, Sprint 4A
+Closure; 342 önceki + 2 yeni kapanış testi — `tests/
+test_sprint4a_candidates.py::test_adr_009_records_the_a0_canonical_
+decision`, `tests/test_sprint4a_real_integration.py::
+test_sprint4a_closure_canonical_chain_has_no_background_removal`).
 Gerçek dosya entegrasyon testleri çalıştı (skip edilmedi). Detay:
 [[07_VALIDATION/Test_Results]].
 
@@ -213,12 +216,13 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   DEĞİLDİR — spektral farklılıktan kaynaklanan bir ölçüm sınırlamasıdır;
   yetkili kanıt tam-segment lag'i (=0, her iki aday için). Bkz.
   `outputs/sprint03_1/PHASE_METRICS_INTERPRETATION_NOTES.md`.
-- **(Sprint 4A'da açık, karar bekleyen konu)** 8 background-removal
-  adayından hangisinin (varsa) canonical seçileceği henüz karar
-  verilmedi — bu proje bu seçimi otomatik yapmaz. Bu veri setinde tüm 8
-  adayın removed component'i yüksek mekânsal koherans gösteriyor (0.83-
-  1.0), yani her aday, gerçek uzun/yatay bir yansımayı bastırma riski
-  taşıyor. Bkz. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+- **(Sprint 4A'da bulundu, Sprint 4A Closure'da kapatıldı — 2026-07-16)**
+  8 background-removal adayının removed component'i yüksek mekânsal
+  koherans gösteriyordu (0.83-1.0), yani her aday, gerçek uzun/yatay bir
+  yansımayı bastırma riski taşıyordu. İnsan/jeofizik nihai kararı:
+  **canonical policy = A0** (background removal uygulanmadı) — bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 - **(Sprint 4A.1'de bulundu, 2026-07-16)** Paired-control sentetik deneyi:
   tüm 8 adayın `paired_control_long_target_retention` değeri ≈
   0.00007-0.017 — yani hiçbir aday uzun bir sentetik hedefi korumuyor,
@@ -234,6 +238,17 @@ Detay: [[04_DATASETS/Swath003_Array02]].
   maksimum kayma). "No background removal" (A0) artık insan reviewer için
   geçerli, açıkça belgelenmiş bir karar seçeneği; background removal
   canonical olmak ZORUNDA değil.
+- **(Sprint 4A Closure, 2026-07-16)** İnsan/jeofizik nihai kararı: A1-A8
+  gerçek veride, A1/A2 dahil, uzun bir sentetik hedefi neredeyse tamamen
+  yok ediyor (`paired_control_long_target_retention` ≈ 0.0000676-0.0172)
+  ve removed component her adayda ≈0.99-1.00 mekânsal koherans gösteriyor
+  — bu ikisi birlikte, hangi aday seçilirse seçilsin gerçek uzun/yatay
+  bir arkeolojik olayı (duvar, temel, döşeme, tabaka sınırı) bastırma
+  riskinin kabul edilemez olduğuna işaret ediyor. Preservation-first
+  politika gereği: **canonical policy = A0** (background removal
+  canonical zincire dahil edilmedi). A1-A8 repository'de deneysel/opt-in
+  araçlar olarak kalıyor. Bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 - Detay: [[01_PROJECT_STATE/04_Risks_and_Limitations]]
 
 ## Kesinlikle yapılmaması gerekenler
@@ -242,25 +257,27 @@ Detay: [[04_DATASETS/Swath003_Array02]].
 - CRS bilgisini doğrulanmış kabul etme veya otomatik reproject etme.
 - Otomatik time-zero pick'ini doğrulanmış fiziksel yüzey zamanı olarak sunma.
 - Sprint kapsamı dışındaki işlem algoritmalarını (gain, migration, F-K, PCA/SVD background removal, vb.) uygulama.
-- Bir dewow, band-pass, veya background-removal adayını OTOMATİK olarak canonical seçme.
+- Bir dewow veya band-pass adayını OTOMATİK olarak canonical seçme.
 - Tamamlanmamış özellikleri tamamlanmış gibi gösterme.
-- Sprint 4A'nın 8 adayından biri canonical seçilmeden Gain'e başlama.
+- Kullanıcının kendi açık isteği olmadan Gain'e başlama (canonical
+  policy = A0 kararı, tek başına, Gain'i BAŞLATMAZ).
+- A0 kararını (veya A1-A8'i) kullanıcının kendi yeni, açık isteği
+  olmadan sessizce değiştirme.
+- A1-A8'i (artık deneysel/opt-in araçlar) repository'den silme.
 
 Tam liste: proje kökündeki `CLAUDE.md`.
 
 ## Bir sonraki görev
-Bir kod görevi DEĞİL: **Human review of corrected hyperbola QC, A0
-baseline, and common-scale real-data montages.** (`BACKGROUND_OUTPUT_
-COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_COMPARISON_CH00_
-CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png`, `PAIRED_CONTROL_
-HYPERBOLA_VALIDATION.png`, `BACKGROUND_FINAL_DECISION_REQUIRED.md` — bkz.
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]). 8 adaydan birinin (veya
-A0'ın, "hiç background removal yapmama") canonical seçilmesi, tek başına,
-Gain'i otomatik olarak BAŞLATMAZ.
+Bir kod görevi DEĞİL: Sprint 4A kapandı (**canonical background-removal
+policy = A0** — bkz.
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]). Sprint
+4B (Gain veya başka bir kapsam) henüz TANIMLANMADI ve kullanıcının kendi
+açık isteği olmadan BAŞLATILMAYACAK — bkz.
+[[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Önce okunması gereken bağlantılar
 1. Bu dosya
 2. [[01_PROJECT_STATE/01_Current_Project_State]]
 3. [[01_PROJECT_STATE/02_Next_Development_Sprint]]
 4. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
-5. [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
+5. [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]

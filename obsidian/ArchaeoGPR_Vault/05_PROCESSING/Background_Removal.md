@@ -1,10 +1,18 @@
 ---
 type: processing-module
-status: review_required
+status: done
 implemented: true
+canonical: false
 ---
 
 # Arka Plan Çıkarma (Background Removal)
+
+> **Canonical policy: A0 (uygulanmadı).** İnsan/jeofizik kararı
+> (2026-07-16): background removal canonical zincire dahil edilmedi.
+> Bu modül repository'de tam çalışan, deneysel/opt-in bir araç olarak
+> kalıyor (`background`/`sprint4a-candidates` CLI alt komutları) — kod
+> silinmedi. Bkz.
+> [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 
 ## Purpose
 
@@ -79,6 +87,21 @@ spatial coherence/concentration, frequency-band energy); QC-only
 arkeolojik sınıflandırma YAPMAZ). Tam liste:
 [[02_SPRINTS/Sprint_04A_Background_Removal]].
 
+## Timing metriği açıklaması (Sprint 4A Closure, 2026-07-16)
+
+`remove_background()` örnek/zaman eksenini ASLA yeniden örneklemez veya
+kaydırmaz — her adayın çıktısı girdinin `time_ns` eksenini birebir
+paylaşır. `candidate_metrics.csv`'deki `median_trace_cross_correlation_
+lag_proxy_w5` kolonu (eski adı: `median_trace_cross_correlation_lag_w5`)
+bir çapraz-korelasyon PİKİ gecikmesidir, programatik bir sample shift
+DEĞİLDİR. A1-A8'de görülen sıfır-olmayan değerler, medyan izin kendi
+dalga şeklinin (içeriğinin bir kısmı çıkarıldığı için) yeterince
+değişmesi sonucu öncesi/sonrası medyan izler arasındaki korelasyon
+pikinin başka bir lag'e kaymasıdır — hiçbir örneğin fiziksel olarak
+kaydırıldığının kanıtı DEĞİLDİR. Bkz.
+`outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md` "How to read
+this table" bölümü.
+
 ## Acceptance Criteria
 Girdi mutasyona uğramaz; çıkarılan bileşen QC için erişilebilir
 (`removed_component`); yatay hedef bastırma riski açıkça belgelenir
@@ -93,11 +116,15 @@ opt-in gerektirir). **Hiçbir aday otomatik olarak canonical seçilmez.**
 Bu modül Sprint 4A'da implemente edildi
 (`src/archaeogpr/processing/background.py::remove_background()`,
 `compute_trace_spacing()`). 8 aday (A1-A8) canonical Sprint 3 çıktısı
-üzerinde gerçek veride çalıştırıldı — **hiçbiri canonical seçilmedi,
-Gain başlatılmadı**. Bkz.
+üzerinde gerçek veride çalıştırıldı. **2026-07-16'da insan/jeofizik
+kararı: canonical policy = A0 (background removal uygulanmadı)** —
+A1-A8'den hiçbiri canonical seçilmedi, canonical zincir Sprint 3 D2+B1
+çıktısında kaldı, Gain başlatılmadı. Bu modül repository'de tam çalışan,
+deneysel/opt-in bir araç olarak kalıyor. Bkz.
 [[02_SPRINTS/Sprint_04A_Background_Removal]],
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
-[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012.
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
 
 ## Related Modules
 

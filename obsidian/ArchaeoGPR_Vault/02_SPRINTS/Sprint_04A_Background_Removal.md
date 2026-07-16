@@ -2,16 +2,27 @@
 type: sprint
 tags: [sprint, review]
 sprint: 4A
-status: review_required
+status: done
 started: 2026-07-15
-completed:
+completed: 2026-07-16
 ---
 
 # Sprint 4A — Background Removal Candidate Development, Signal-Preservation Validation and Geophysical QC
 
-> **İnsan/jeofizik incelemesi bekleniyor.** Bu sprint hiçbir background-
-> removal adayını canonical seçmedi ve gain'i başlatmadı. Sonraki adım:
-> [[01_PROJECT_STATE/02_Next_Development_Sprint]]'teki `Next action`.
+> **✅ Sprint tamamlandı (2026-07-16) — İnsan/jeofizik kararı: A0 (hiç
+> background removal uygulanmama).** Bu sprintin başarı kriteri bir
+> filtre SEÇMEK değildi — 8 adayı (A1-A8) ve bunların risklerini insan/
+> jeofizik incelemesi için ölçülebilir kılmaktı. İnceleme sonucunda
+> kullanıcı background removal'ın canonical zincire dahil EDİLMEMESİNE
+> karar verdi. Canonical işlem zinciri Sprint 3 D2+B1 çıktısında kalıyor;
+> hiçbir yeni canonical NPZ üretilmedi; Gain başlatılmadı. Detay:
+> [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+> [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
+>
+> Aşağıdaki "Sprint 4A.1"/"Sprint 4A.2" bölümleri, bu nihai karara
+> ulaşmak için üretilen kanıtın tarihsel QC kaydı olarak KORUNUYOR
+> (değiştirilmedi) — bu düzeltmeler kendileri artık review_required
+> DEĞİL, kapanmış bir sprintin parçası.
 >
 > **Sprint 4A.1 düzeltmesi (2026-07-16, PR #1 üzerinde):** karar QC'sindeki
 > üç kusur düzeltildi — (1) pencere uzunluğu terminolojisi (`applied_
@@ -409,34 +420,75 @@ metnine — `Gain has not started.` — güncellendi).
 **Gerçek CLI yeniden çalıştırıldı** (`outputs/sprint04a/`) — tüm hash'ler
 (ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical) değişmeden kaldı.
 
+## Sprint 4A Closure — Human Decision (2026-07-16)
+
+**Sprint başarılı şekilde tamamlandı.** Bu sprintin başarı kriteri bir
+filtre seçmek DEĞİLDİ — 8 background-removal adayını (A1-A8) gerçek
+veride ölçülebilir, insan/jeofizik incelemesine uygun kanıtla üretmekti.
+**İnsan incelemesi sonucunda background removal uygulanmaması seçildi**
+(canonical policy: **A0**, `no_background_removal`) — bkz.
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]] (karar
+gerekçesi, alternatifler, dataset-specific kapsam, tüm sayısal kanıt).
+
+**[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 şu karar ile KAPATILDI:
+canonical background policy = A0.**
+
+Karar sonucu:
+- A1-A8'den hiçbiri canonical seçilmedi.
+- Canonical Sprint 3 verisine (D2+B1) background removal
+  UYGULANMAYACAK.
+- Canonical işlem zinciri değişmeden kalıyor:
+  `time_zero_correction → dc_offset_correction → dewow_correction (D2)
+  → bandpass_correction (B1)`.
+- Yeni bir canonical NPZ üretilmedi.
+- A0 için `ProcessingResult`, `removed_component` veya NPZ üretilmedi
+  (Sprint 4A.2'de kasıtlı olarak tasarlanmış davranış — bu karar bunu
+  değiştirmiyor).
+- A1-A8, repository'de deneysel/opt-in araçlar olarak kalıyor
+  (`background`/`sprint4a-candidates` CLI alt komutları,
+  `configs/background_candidates.yaml`) — silinmedi, kaldırılmadı.
+- Gain başlatılmadı; bu karar Gain'i otomatik olarak BAŞLATMAZ.
+
+Sprint 4A.1 ve Sprint 4A.2 düzeltmeleri (yukarıdaki bölümler) bu nihai
+karara ulaşmak için üretilen kanıtın **tarihsel QC kaydı** olarak
+DEĞİŞTİRİLMEDEN korunuyor.
+
 ## Decisions
-Bu sprintte hiçbir background-removal adayı canonical seçilmedi (kural
-gereği — bkz. CLAUDE.md, ADR-008). ADR-008 kanal-bazlı politika,
-window-length riski, mean-vs-median farkı, ve trace-spacing önceliğini
-mimari karar olarak kayda geçirir; bir aday SEÇMEZ. Sprint 4A.1, ADR-008'e
-nominal-length-vs-span, paired-control target retention, common-scale
-görsel karşılaştırma, ve removed-coherence'ın preservation olmadığı
-notlarını ekler — yeni bir karar EKLEMEZ.
+Bu sprintte 8 background-removal adayından (A1-A8) hiçbiri canonical
+seçilmedi — ancak sprint kapanışında (2026-07-16) kullanıcı **A0**'ı
+(hiç background removal uygulanmama) canonical POLİTİKA olarak seçti.
+Bkz. [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+ADR-008 kanal-bazlı politika, window-length riski, mean-vs-median farkı,
+ve trace-spacing önceliğini mimari karar olarak kayda geçirir; bir aday
+SEÇMEZ. Sprint 4A.1, ADR-008'e nominal-length-vs-span, paired-control
+target retention, common-scale görsel karşılaştırma, ve
+removed-coherence'ın preservation olmadığı notlarını ekler. Sprint 4A.2,
+hiperbol QC düzeltmesi ve A0 referans politikasını ekler. ADR-009, bu
+kanıtı kullanarak nihai insan kararını (A0 canonical) kayda geçirir.
 
 ## Completion Summary
 Dört background-removal yöntemi bilimsel olarak implemente edildi, 8 aday
 gerçek canonical Sprint 3 verisi üzerinde çalıştırıldı, sinyal-koruma ve
 çıkarılan-bileşen metrikleri her aday için hesaplandı, 5 synthetic risk
-deneyi çalıştırıldı, ve tam bir karar paketi (panel + rapor) üretildi.
-Hiçbir aday canonical seçilmedi, gain başlatılmadı. Status: `review_required`.
+deneyi çalıştırıldı, hiperbol QC hatası düzeltildi, A0 referans
+politikası eklendi, ve tam bir karar paketi (panel + rapor) üretildi.
+**İnsan/jeofizik incelemesi sonucunda hiçbir aday (A1-A8) canonical
+seçilmedi; canonical policy = A0 (background removal uygulanmadı); gain
+başlatılmadı. Status: `done`.**
 
 ## Next Sprint Recommendation
-Bir kod görevi DEĞİL: **Human review of common-scale output/removed
-B-scan montages and corrected paired-control metrics** — bkz.
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]. Kullanıcının kendi açık
-isteğiyle bu sprintin 8 adayından birini (veya hiçbirini) canonical
-seçmesi hâlâ gerekiyor; bu karardan sonra da Gain otomatik olarak
-BAŞLAMAZ.
+Bir kod görevi DEĞİL: Sprint 4B (Gain veya başka bir kapsam) henüz
+TANIMLANMADI ve kullanıcının kendi açık isteği olmadan BAŞLATILMAYACAK —
+bkz. [[01_PROJECT_STATE/02_Next_Development_Sprint]]. "Canonical policy =
+A0" kararı, tek başına, Gain'i veya başka bir sonraki sprinti otomatik
+olarak BAŞLATMAZ.
 
 ## Related Notes
 [[Sprint_Index]], [[Sprint_03_Dewow_Bandpass]],
 [[Sprint_03_1_Dewow_Bandpass_Decision_QC]],
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
 [[05_PROCESSING/Background_Removal]],
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]
+[[01_PROJECT_STATE/02_Next_Development_Sprint]],
+[[01_PROJECT_STATE/03_Open_Issues]]

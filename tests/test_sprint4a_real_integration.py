@@ -209,6 +209,14 @@ def test_run_all_sprint4a_candidates_on_real_data(tmp_path):
         assert path.is_file()
         assert path.stat().st_size > 0
 
+    # --- Sprint 4A.2/Closure: A0 recorded in candidate_metrics.csv, never as an
+    # NPZ or a candidate output directory anywhere in this real run ------------
+    candidate_metrics_csv = result["comparison_paths"]["candidate_metrics_csv"]
+    csv_text = candidate_metrics_csv.read_text(encoding="utf-8")
+    assert csv_text.splitlines()[1].startswith("A0,")
+    assert list((tmp_path / "sprint04a").rglob("*A0*.npz")) == []
+    assert not any("A0" in p.name for p in (tmp_path / "sprint04a").rglob("*") if p.is_dir())
+
     # --- engineering categories restricted to the allowed vocabulary ------------
     allowed_categories = {
         "preservation-favoring",
@@ -226,3 +234,11 @@ def test_run_all_sprint4a_candidates_on_real_data(tmp_path):
     if sprint2_hash_before is not None:
         assert _sha256(_SPRINT2_CANONICAL_NPZ) == sprint2_hash_before
     assert _sha256(_CANONICAL_SPRINT3_NPZ) == sprint3_hash_before
+
+
+def test_sprint4a_closure_canonical_chain_has_no_background_removal():
+    """Sprint 4A Closure (ADR-009): canonical policy = A0, so the canonical NPZ's own history is untouched."""
+    dataset, _valid_mask = read_processed_npz(_CANONICAL_SPRINT3_NPZ)
+    history_ops = tuple(r["operation"] for r in dataset.processing_history)
+    assert history_ops == _EXPECTED_SPRINT3_HISTORY
+    assert "background_removal" not in history_ops

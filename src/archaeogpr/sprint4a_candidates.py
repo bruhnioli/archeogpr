@@ -1493,7 +1493,7 @@ def build_background_comparison(
             "spectral_energy_retention_w5": a0["spectral_retention"],
             "waveform_correlation_median_w5": a0["waveform_correlation"],
             "local_event_amplitude_retention_w5": a0["local_event_amplitude_retention"],
-            "median_trace_cross_correlation_lag_w5": None,
+            "median_trace_cross_correlation_lag_proxy_w5": None,
             "timing_preservation": a0["timing_preservation"],
             "removed_input_rms_ratio_w5": a0["background_suppression"],
             "removed_input_energy_ratio_w5": a0["background_suppression"],
@@ -1539,7 +1539,11 @@ def build_background_comparison(
                 "local_event_amplitude_retention_w5": info["signal_preservation"][w5][
                     "local_event_amplitude_retention"
                 ],
-                "median_trace_cross_correlation_lag_w5": info["signal_preservation"][w5][
+                # Named "_proxy" (Sprint 4A.2 closure): background removal never
+                # resamples or shifts the sample/time axis -- a nonzero value here
+                # is the correlation PEAK moving to a different lag because the
+                # waveform itself changed, not a programmatic sample shift.
+                "median_trace_cross_correlation_lag_proxy_w5": info["signal_preservation"][w5][
                     "median_trace_cross_correlation_lag"
                 ],
                 "removed_input_rms_ratio_w5": info["removed_metrics"][w5]["removed_input_rms_ratio"],
@@ -2045,6 +2049,15 @@ has no B-scan of its own (no processing was applied), so its row here and in
   whether that continuity reflects unwanted common-mode background or a
   real, laterally continuous reflection, and it is not an archaeological
   claim of any kind.
+- **Timing preservation** (`median_trace_cross_correlation_lag_proxy_w5`
+  in `candidate_metrics.csv`) is a cross-correlation-PEAK lag, not a
+  programmatic sample shift. Background removal never resamples or
+  shifts the sample/time axis -- every candidate's output shares the
+  input's exact `time_ns` axis. A nonzero value here means the median
+  trace's own waveform changed enough (by removing part of its content)
+  that the correlation peak between the before/after median traces moved
+  to a different lag; it is a proxy for how much the waveform *shape*
+  changed, never evidence that any sample was moved.
 - **Engineering interpretation** states which single metric
   (`overall_rms_retention_tendency`) the category label is based on, and
   flags an explicit CONFLICT when a candidate ranked "preservation-favoring"

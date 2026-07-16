@@ -682,6 +682,45 @@ klasörlerinin hiçbirinde `A0` içeren bir dosya/klasör adı YOK (aranıp
 doğrulandı). Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical hash'leri
 üçü de Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş.
 
+## Sprint 4A Closure — Human Decision Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (timing-metriği yeniden adlandırma
+sonrası, aynı komut). Girdi NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2
+canonical NPZ hash'i ÖNCEKİ Sprint 4A.2 çalıştırmasıyla bit-bazında özdeş
+kaldı.
+
+### `candidate_metrics.csv` (timing kolonu yeniden adlandırıldı)
+- Programatik olarak doğrulandı: kolon başlığı artık `median_trace_
+  cross_correlation_lag_proxy_w5` (eski ad `median_trace_cross_
+  correlation_lag_w5` artık hiçbir dosyada YOK — aranıp doğrulandı).
+- A0 satırı hâlâ ilk satır, 9 satır × 25 kolon değişmedi.
+
+### `BACKGROUND_FINAL_DECISION_REQUIRED.md` (yeni timing açıklaması)
+"How to read this table" bölümünde yeni bir madde doğrulandı: "Timing
+preservation" kolonunun bir çapraz-korelasyon PİKİ gecikmesi olduğu,
+programatik bir sample shift OLMADIĞI, background removal'ın örnek/zaman
+eksenini asla yeniden örneklemediği/kaydırmadığı açıkça yazılı.
+
+### `outputs/sprint04a/` genel — A0 hâlâ hiçbir dosya adında yok
+`background_candidates/` altında (aranıp doğrulandı) hiçbir dosya/klasör
+adında `A0` YOK. Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical
+hash'lerinin üçü de bu kapanış çalıştırmasıyla bit-bazında özdeş kaldı.
+
+### Vault — ADR-009 ve ISSUE-012
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_009_Canonical_No_Background_
+Removal_Policy.md` oluşturuldu ve `python scripts/validate_obsidian_
+vault.py` ile doğrulandı (71 not, 0 broken wikilink, 0 orphan).
+`01_PROJECT_STATE/03_Open_Issues.md`'deki ISSUE-012 "Resolved" olarak
+işaretlendi. `02_SPRINTS/Sprint_04A_Background_Removal.md`'nin frontmatter
+`status` alanı `review_required` → `done` olarak güncellendi.
+
+### Programatik denetim (Sprint 4A Closure)
+`tests/test_sprint4a_candidates.py::test_adr_009_records_the_a0_
+canonical_decision` ve `tests/test_sprint4a_real_integration.py::
+test_sprint4a_closure_canonical_chain_has_no_background_removal`
+gerçek dosyalarla çalıştırıldı, ikisi de geçti. Tam test sonucu:
+[[Test_Results]].
+
 ## İlgili notlar
 [[Test_Results]], [[Parser_Validation]], [[04_DATASETS/Swath003_Array02]],
 [[Sprint_02_TimeZero_DCOffset]], [[Sprint_02_1_TimeZero_DCOffset_Review]],
@@ -689,4 +728,5 @@ doğrulandı). Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical hash'leri
 [[Sprint_03_1_Dewow_Bandpass_Decision_QC]],
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
 [[02_SPRINTS/Sprint_04A_Background_Removal]],
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]

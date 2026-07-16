@@ -16,13 +16,16 @@ sırayla, sprint bazında ve açıkça istenmeden eklenmiyor (bkz. `CLAUDE.md`).
 
 ## Mevcut sprint
 **Sprint 4A** ([[02_SPRINTS/Sprint_04A_Background_Removal]]) —
-**review_required**. Dört background-removal yöntemi (global_mean/
-global_median/sliding_mean/sliding_median) implemente edildi; 8 aday
-(A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde gerçek veride
-çalıştırıldı, sinyal-koruma + removed-component metrikleri hesaplandı,
-5 synthetic bilimsel-risk deneyi çalıştırıldı. **Hiçbir aday canonical
-seçilmedi, Gain başlatılmadı** — bkz.
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+**done** (2026-07-16'da kapandı). Dört background-removal yöntemi
+(global_mean/global_median/sliding_mean/sliding_median) implemente
+edildi; 8 aday (A1-A8) canonical Sprint 3 çıktısı (D2+B1) üzerinde
+gerçek veride çalıştırıldı, sinyal-koruma + removed-component
+metrikleri hesaplandı, 5 synthetic bilimsel-risk deneyi çalıştırıldı.
+**İnsan/jeofizik kararı: canonical policy = A0 (background removal
+uygulanmadı) — A1-A8'den hiçbiri canonical seçilmedi, Gain
+başlatılmadı** — bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
 ([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]) her ikisi de
 **done** — 2026-07-15'te kullanıcı D2 dewow + B1 band-pass'i insan/
@@ -167,7 +170,7 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
 - 60 yeni test (toplam 314). Bkz.
   [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
 
-**Sprint 4A.1** (2026-07-16, PR #1 üzerinde, review_required kalır):
+**Sprint 4A.1** (2026-07-16, PR #1 üzerinde):
 - Karar QC düzeltmesi: pencere terminolojisi (`applied_window_nominal_
   length_m` vs `_center_to_center_span_m`), ortak-scale B-scan montajları
   (`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_
@@ -185,13 +188,47 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
   [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
   "Sprint 4A.1 Correction" bölümü.
 
+**Sprint 4A.2** (2026-07-16, aynı PR #1):
+- `localized_hyperbola` sentetik hedefinin (sabit `curvature=0.03` +
+  kısa hedef yüzünden) pratikte düz bir olay olduğu bulundu ve
+  düzeltildi — `curvature` artık istenen bir maksimum kaymadan
+  türetiliyor, gerçek bir `target_mask` döndürülüyor, retention apex/kol
+  olarak ayrı raporlanıyor. Yeni `PAIRED_CONTROL_HYPERBOLA_
+  VALIDATION.png`.
+- Yeni **A0** (`no_background_removal`) — dokuzuncu bir filtre değil,
+  karar/QC katmanında sabit değerli bir referans politikası; nihai karar
+  tablosuna, metrics summary paneline, `candidate_metrics.csv`'ye
+  eklendi (B-scan montajlarına DEĞİL, NPZ/ProcessingResult üretmiyor).
+- 16 yeni test (toplam 342). Bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
+  "Sprint 4A.2 Correction" bölümü.
+
+**Sprint 4A Closure — insan kararı** (2026-07-16, aynı PR #1, sprint
+`done` olarak kapandı):
+- Timing metriği netleştirildi: `candidate_metrics.csv`'deki kolon
+  `median_trace_cross_correlation_lag_proxy_w5` olarak yeniden
+  adlandırıldı + nihai raporda açık bir açıklama eklendi (background
+  removal örnek/zaman eksenini asla kaydırmaz; A1-A8'deki sıfır-olmayan
+  lag değerleri programatik bir sample shift değil, waveform
+  değişiminden dolayı korelasyon piki'nin başka bir lag'e geçmesidir).
+- **İnsan/jeofizik nihai kararı: canonical background-removal policy =
+  A0.** A1-A8'den hiçbiri canonical seçilmedi; canonical Sprint 3 (D2+B1)
+  çıktısına background removal uygulanmayacak; yeni bir canonical NPZ
+  üretilmedi; A1-A8 repository'de deneysel/opt-in araçlar olarak kaldı;
+  Gain başlatılmadı. Bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+  [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
+
 ## Henüz uygulanmayan özellikler
 Gain, AGC, F-K filtering, migration, Hilbert envelope, depth-slice
 üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export, GUI.
-Background removal artık implemente edildi ama **hiçbir adayı canonical
-değil** (bkz. Sprint 4A yukarıda). Hiçbiri için sahte/yarım
-implementasyon yok — sadece `05_PROCESSING/` altında gelecek için
-planlanan API bağlamı var (bkz. [[05_PROCESSING/Processing_Index]]).
+Background removal implemente edildi ve repository'de deneysel/opt-in
+bir araç olarak mevcut, ama **canonical policy = A0 (uygulanmadı)** —
+bkz. Sprint 4A yukarıda,
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+Hiçbiri için sahte/yarım implementasyon yok — sadece `05_PROCESSING/`
+altında gelecek için planlanan API bağlamı var (bkz.
+[[05_PROCESSING/Processing_Index]]).
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -223,8 +260,10 @@ korundu, sidecar notlarla süperseded olarak işaretlendi. Detay:
 [[04_DATASETS/Swath003_Array02]].
 
 ## Test durumu
-`pytest` → **328 passed, 0 failed, 0 skipped** (2026-07-16, gerçek dosya
-mevcutken çalıştırıldı: 314 önceki + 14 yeni Sprint 4A.1 testi).
+`pytest` → **344 passed, 0 failed, 0 skipped** (2026-07-16, Sprint 4A
+Closure; gerçek dosya mevcutken çalıştırıldı: 314 (Sprint 4A) + 14
+(Sprint 4A.1) + 16 (Sprint 4A.2) + 2 yeni kapanış testi (ADR-009 kaydı,
+canonical zincirin `background_removal` içermediği)).
 Detay: [[07_VALIDATION/Test_Results]].
 
 ## Bilinen hatalar
@@ -290,12 +329,11 @@ Açık sorunlar (hata değil, belirsizlik/karar bekleyen konular) için
 - Vault: `obsidian/ArchaeoGPR_Vault/`
 
 ## Bir sonraki somut görev
-Bir kod görevi DEĞİL: **ortak-scale output/removed B-scan montajlarının
-ve düzeltilmiş paired-control metriklerinin insan incelemesi** (Sprint
-4A.1, bkz.
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
-8 adaydan birinin (veya hiçbirinin) canonical seçilmesi, tek başına,
-Gain'i AÇMAZ. Detay: [[01_PROJECT_STATE/02_Next_Development_Sprint]].
+Bir kod görevi DEĞİL: Sprint 4A kapandı, canonical policy = A0 (bkz.
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]). Sprint
+4B (Gain veya başka bir kapsam) henüz TANIMLANMADI ve kullanıcının kendi
+açık isteği olmadan BAŞLATILMAYACAK. Detay:
+[[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
-2026-07-15
+2026-07-16

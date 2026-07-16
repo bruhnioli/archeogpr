@@ -173,9 +173,15 @@ Uygulanan pencereler: A3/A6 (0.5m istenen) → 13 traces/0.5212m; A4/A7
 (1.0m) → 25 traces/1.002m; A5/A8 (1.5m) → 37 traces/1.483m. Removed-
 component adjacent-trace correlation (W5, 20-100ns): A1=1.0, A2=1.0,
 A3=0.9965, A4=0.9988, A5=0.9995, A6=0.9919, A7=0.9971, A8=0.9984 — tüm 8
-adayda yüksek, yöntemden bağımsız bir risk sinyali. Tam detay:
-[[02_SPRINTS/Sprint_04A_Background_Removal]],
+adayda yüksek, yöntemden bağımsız bir risk sinyali. Paired-control
+uzun-hedef retention'ı (A1-A8): 0.0000676 (A2) ile 0.0172 (A3) arasında —
+tüm adaylarda 0.3 eşiğinin çok altında. **2026-07-16'da insan/jeofizik
+nihai kararı: canonical policy = A0 (background removal uygulanmadı)** —
+bu veri setinin canonical işlenmiş türevi hâlâ `outputs/sprint03/
+canonical_D2_B1/sprint03_processed.npz`'dir (background-removal-siz).
+Tam detay: [[02_SPRINTS/Sprint_04A_Background_Removal]],
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
 [[07_VALIDATION/QC_Output_Validation]].
 
 ## Amplitude statistics (ham, gain uygulanmamış)
@@ -243,12 +249,16 @@ Detay: [[07_VALIDATION/Test_Results]], [[07_VALIDATION/Parser_Validation]].
   [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-010 (resolved), ISSUE-011
   (resolved), [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]. Bu seçim
   yalnızca bu veri seti için geçerlidir.
-- Background-removal adayı (A1-A8) seçimi henüz açık — Sprint 4A, 8 aday
-  üretti ve karşılaştırdı ama hiçbirini canonical seçmedi; bu veri
+- Background-removal adayı (A1-A8) seçimi 2026-07-16'da insan/jeofizik
+  kararıyla çözüldü: **canonical policy = A0** (background removal
+  uygulanmadı). Sprint 4A, 8 aday üretti ve karşılaştırdı; bu veri
   setinde tüm 8 adayın removed component'i yüksek mekânsal koherans
-  gösteriyor (0.83-1.0), yöntemden bağımsız bir risk sinyali. Bkz.
-  [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012,
-  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+  gösteriyordu (0.83-1.0) ve paired-control uzun-hedef retention'ı tüm
+  adaylarda 0.3'ün çok altındaydı — preservation-first politikayla
+  hiçbiri canonical seçilmedi. Bu seçim yalnızca bu veri seti için
+  geçerlidir. Bkz. [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012
+  (kapatıldı), [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 
 ## İlgili notlar
 [[Dataset_Index]], [[03_ARCHITECTURE/OpenGPR_File_Structure]],

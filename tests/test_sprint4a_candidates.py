@@ -18,6 +18,7 @@ metrics summary panel, and ``candidate_metrics.csv`` only, never as a
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -605,3 +606,26 @@ def test_preservation_favoring_candidates_are_compared_against_a0(dataset_factor
         if category == "preservation-favoring":
             assert _A0_ID in notes[candidate_id]
             assert _A0_LABEL in notes[candidate_id]
+
+
+# ======================================================================
+# Sprint 4A Closure (2026-07-16): human decision recorded in ADR-009
+# ======================================================================
+
+
+def test_adr_009_records_the_a0_canonical_decision():
+    """ADR-009 (vault) records the human decision: canonical background-removal policy = A0."""
+    adr_path = (
+        Path(__file__).resolve().parents[1]
+        / "obsidian"
+        / "ArchaeoGPR_Vault"
+        / "06_DECISIONS"
+        / "ADR_009_Canonical_No_Background_Removal_Policy.md"
+    )
+    assert adr_path.is_file()
+    text = adr_path.read_text(encoding="utf-8")
+    assert "Canonical background-removal policy: A0" in text
+    assert "no_background_removal" in text
+    assert "None of A1-A8 is selected canonical." in text
+    assert "No new canonical NPZ is produced" in text
+    assert "Gain has not started" in text

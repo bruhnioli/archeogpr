@@ -21,7 +21,7 @@ geri kalan beşi hâlâ planlanmış durumdadır — bkz. her modülün kendi
 | [[DC_Offset]] | Her izdeki sabit amplitüd yanlılığını (DC bileşeni) gidermek | **implemented** (Sprint 2) |
 | [[Dewow]] | Çok-düşük-frekanslı "wow" sürüklenmesini gidermek | **implemented** (Sprint 3) — canonical: D2 (bkz. ADR-007) |
 | [[Bandpass_Filter]] | Nominal frekans bandı dışındaki gürültüyü reddetmek | **implemented** (Sprint 3) — canonical: B1 (bkz. ADR-007) |
-| [[Background_Removal]] | Tüm izlerde ortak yatay bantlanma/çınlamayı çıkarmak | **implemented** (Sprint 4A) — 8 aday, **hiçbiri canonical değil** (bkz. ADR-008) |
+| [[Background_Removal]] | Tüm izlerde ortak yatay bantlanma/çınlamayı çıkarmak | **implemented** (Sprint 4A), deneysel/opt-in — **canonical policy: A0 (uygulanmadı)**, bkz. ADR-009 |
 | [[Gain]] | Derinlik/zamanla azalan sinyali amplitüd kazancıyla telafi etmek | planned |
 | [[FK_Filter]] | Eğik gürültü/artefaktları f-k domeninde filtrelemek (varsayılan kapalı) | planned |
 | [[Velocity_Analysis]] | Yer altı yayılım hızını hiperbol uydurma ile tahmin etmek | planned |
@@ -38,9 +38,10 @@ B1, insan/jeofizik kararı): [[02_SPRINTS/Sprint_03_Dewow_Bandpass]],
 [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]],
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]. Background Removal'ın
 gerçek implementasyonu (4 yöntem, 8 aday, canonical Sprint 3 çıktısı
-üzerinde) — **hiçbir adayı canonical değil, insan/jeofizik incelemesi
-bekleniyor**: [[02_SPRINTS/Sprint_04A_Background_Removal]],
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+üzerinde) ve nihai insan kararı (**canonical policy: A0, background
+removal uygulanmadı**): [[02_SPRINTS/Sprint_04A_Background_Removal]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 
 ## Planlanan Çalıştırma Sırası
 

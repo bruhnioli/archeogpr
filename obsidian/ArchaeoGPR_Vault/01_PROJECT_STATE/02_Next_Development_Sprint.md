@@ -5,7 +5,7 @@ tags: [project-state, sprint]
 
 # Next Development Sprint — Sprint 4B / Gain (henüz tanımlanmadı)
 
-## Durum: Sprint 4A review_required; sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
+## Durum: Sprint 4A done (canonical policy = A0); sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
 
 Sprint 4A ([[02_SPRINTS/Sprint_04A_Background_Removal]]) dört
 background-removal yöntemini (global_mean, global_median, sliding_mean,
@@ -37,15 +37,25 @@ olarak eklendi — nihai karar tablosunda, metrics summary panelinde ve
 `candidate_metrics.csv`'de. Bkz.
 [[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.2" bölümü.
 
-**Next action: Human review of corrected hyperbola QC, A0 baseline, and common-scale real-data montages.**
+**Human decision (2026-07-16): canonical background-removal policy = A0
+(no_background_removal).** A1-A8'den hiçbiri canonical seçilmedi;
+canonical Sprint 3 (D2+B1) çıktısına background removal uygulanmayacak;
+canonical işlem zinciri değişmeden kalıyor; yeni bir canonical NPZ
+üretilmedi; A0 için `ProcessingResult`/`removed_component`/NPZ
+üretilmedi; A1-A8 repository'de deneysel/opt-in araçlar olarak kaldı
+(silinmedi). Karar gerekçesi, tüm sayısal kanıt ve alternatiflerin
+değerlendirmesi:
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 bu kararla **kapatıldı**.
 
-8 adaydan birinin veya A0'ın ("hiç background removal yapmama") canonical
-seçilmesi, tek başına, bir sonraki sprinti (Gain veya başka bir işlem)
-BAŞLATMAZ — bu proje hiçbir sprintte kendi kendine bir sonraki sprinte
-geçmez. **Sprint 4B (Gain veya başka bir kapsam) henüz TANIMLANMADI ve
-kullanıcının kendi açık isteği olmadan BAŞLATILMAYACAK.**
+Bu kararın kendisi, tek başına, bir sonraki sprinti (Gain veya başka bir
+işlem) BAŞLATMAZ — bu proje hiçbir sprintte kendi kendine bir sonraki
+sprinte geçmez. **Sprint 4B (Gain veya başka bir kapsam) henüz
+TANIMLANMADI ve kullanıcının kendi açık isteği olmadan
+BAŞLATILMAYACAK.**
 
 Detay: [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
 `outputs/sprint04a/BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
 `outputs/sprint04a/BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`,
 `outputs/sprint04a/BACKGROUND_METRICS_SUMMARY.png`,
@@ -58,31 +68,35 @@ paired_control_target_attenuation.csv`,
 (A0 satırı dahil),
 `outputs/sprint04a/background_candidates/comparison/BACKGROUND_REVIEW_REQUIRED.md`,
 [[02_SPRINTS/Sprint_04A_Background_Removal]]. `BACKGROUND_DECISION_
-PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor ama artık asıl
-karar dosyaları DEĞİL. **"No background removal" (A0), insan reviewer
-için geçerli, açıkça belgelenmiş bir karar seçeneğidir — background
-removal canonical olmak ZORUNDA değildir.**
+PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor ama asıl karar
+dosyaları DEĞİL.
+
+Canonical processing chain (`Swath003_Array02.ogpr`, değişmedi):
+`time_zero_correction → dc_offset_correction → dewow_correction (D2) →
+bandpass_correction (B1)`. Background removal: **disabled / not
+applied**.
 
 ---
 
 ## Sprint 4B için olası kapsam (yalnızca bir taslak — henüz onaylanmadı)
 
-Background-removal adayları artık üretildiğine göre (bkz. Sprint 4A),
-olası bir Sprint 4B şu adımlardan birini/birkaçını kapsayabilir
-(kesinleşmiş DEĞİL, yalnızca [[05_PROCESSING/Processing_Order]]'daki
-planlanan sırayı yansıtan bir taslak): background-removal adaylarından
-birinin canonical seçimi (insan/jeofizik kararı) ve/veya Gain — insan
-kararı verilmiş bir background-removal çıktısı üzerinde. Bu liste bir
-taahhüt değildir; Sprint 4B'nin kesin kapsamı yalnızca kullanıcının açık
-isteğiyle netleşecektir.
+Background-removal kararı artık kapandığına göre (canonical policy = A0,
+bkz. Sprint 4A yukarıda), olası bir Sprint 4B şu adımlardan birini/
+birkaçını kapsayabilir (kesinleşmiş DEĞİL, yalnızca
+[[05_PROCESSING/Processing_Order]]'daki planlanan sırayı yansıtan bir
+taslak): Gain — canonical Sprint 3 (D2+B1, background-removal-siz) çıktı
+üzerinde. Bu liste bir taahhüt değildir; Sprint 4B'nin kesin kapsamı
+yalnızca kullanıcının açık isteğiyle netleşecektir.
 
 ## Kesinlikle yapılmayacaklar (bir sonraki adım için)
-- Yeni bir background-removal adayını (A1-A8'den biri) OTOMATİK olarak
-  canonical seçmek.
+- A0 kararını (veya A1-A8'den herhangi birini) daha sonra sessizce
+  değiştirmek — bu karar yalnızca kullanıcının kendi yeni, açık isteğiyle
+  değişebilir (bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]).
 - Kullanıcının kendi açık isteği olmadan bir sonraki sprinti (Gain veya
   başka bir kapsam) başlatmak.
-- 8 background-removal adayından biri canonical seçilmeden Gain'e
-  başlamak.
+- "Canonical policy = A0" kararını Gain'i otomatik olarak başlatma
+  gerekçesi olarak kullanmak.
 - D2/B1'in veya herhangi bir background-removal adayının
   `Swath003_Array02.ogpr` dışındaki bir veri setine otomatik olarak
   (kendi aday karşılaştırması/insan incelemesi olmadan) uygulanması.
@@ -95,10 +109,8 @@ isteğiyle netleşecektir.
   koruması ile eşdeğer saymak — Sprint 4A.1'in paired-control deneyi bu
   veri setinde tam tersini gösterdi (A1/A2 yüksek RMS retention ama
   paired-control uzun-hedef retention ≈ 0).
-- A0'ı ("hiç background removal yapmama") otomatik olarak canonical
-  seçmek veya A1-A8'e göre otomatik olarak "daha iyi" saymak — A0 sadece
-  bir referans noktasıdır, kullanıcının kendi kararı olmadan hiçbir satır
-  (A0 dahil) canonical DEĞİLDİR.
+- A1-A8'i (artık deneysel/opt-in araçlar) repository'den silmek — bu
+  karar onları kaldırmıyor, sadece canonical seçmiyor.
 - Herhangi bir anomali/arkeolojik yorum yapmak.
 
 ## İlgili notlar
@@ -109,4 +121,5 @@ isteğiyle netleşecektir.
 [[01_PROJECT_STATE/03_Open_Issues]], [[05_PROCESSING/Background_Removal]],
 [[05_PROCESSING/Gain]], [[05_PROCESSING/Processing_Order]],
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]

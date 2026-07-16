@@ -305,7 +305,18 @@ Kod hataları için [[07_VALIDATION/Test_Results]] ve `pytest` çıktısına bak
 
 ## ISSUE-012 — Background-removal adayı (A1-A8 arasından) henüz seçilmedi
 
-- Status: Open (insan/jeofizik incelemesi bekleniyor — kod hatası değil)
+- Status: **Resolved** (2026-07-16, Sprint 4A Closure) — kullanıcı, insan/
+  jeofizik nihai kararı olarak **A0**'ı (`no_background_removal`)
+  canonical POLİTİKA seçti: A1-A8'den hiçbiri canonical seçilmedi,
+  canonical Sprint 3 (D2+B1) çıktısına background removal
+  uygulanmayacak, canonical zincir değişmeden kaldı, Gain başlatılmadı.
+  A1-A8 repository'de deneysel/opt-in araçlar olarak kalıyor. Karar
+  gerekçesi, tüm sayısal kanıt ve değerlendirilen alternatifler: bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]. Bu
+  seçim yalnızca `Swath003_Array02.ogpr` için geçerlidir; başka bir veri
+  seti kendi aday karşılaştırmasını ve kendi insan/jeofizik incelemesini
+  gerektirir. Aşağıdaki orijinal analiz (Sprint 4A'dan, değiştirilmedi)
+  hâlâ geçerli bir arka plan bilgisidir.
 - Severity: Medium (nihai işlenmiş veri kalitesini etkiler)
 - Category: Background removal / parameter selection
 - Detected in: Sprint 4A, background-removal aday karşılaştırması
@@ -328,9 +339,9 @@ Kod hataları için [[07_VALIDATION/Test_Results]] ve `pytest` çıktısına bak
   tanımlanmadı) hangi background-removal çıktısı üzerinde çalışacağı
   (veya hiç background-removal uygulanmamış bir girdi üzerinde
   çalışacağı) bu seçime bağlıdır.
-- Proposed next action: Jeofizik ekibiyle
+- Proposed next action (tarihsel, çözülmeden önce): Jeofizik ekibiyle
   `BACKGROUND_DECISION_PANEL.png`, `BACKGROUND_DECISION_PANEL_DETAIL.png`
   ve her adayın kendi removed-component B-scan'lerini inceleyip bir aday
   seçmek (veya hiçbirini seçmeyip başka bir yaklaşım istemek). Bu proje
   bu seçimi otomatik yapmaz.
-- Owner: TBD (jeofizik ekibi + proje sahibi)
+- Owner: Resolved by Sprint 4A Closure (2026-07-16) — kullanıcı kararı A0.

@@ -55,10 +55,14 @@ arkeolojik hedefler (bir taban, bir duvar temeli, bir katman sınırı) bu
 bileşenden AYIRT EDİLEMEZ ve aynı etkinlikte bastırılabilir. Bu veri
 setinde, tüm 8 background-removal adayının removed component'i yüksek
 mekânsal koherans gösteriyor (0.83-1.0) — bu, yöntemden bağımsız olarak
-gerçek bir riskin var olduğunu gösteren bir QC sinyalidir. **Hiçbir
-aday canonical seçilmedi** — bkz.
+gerçek bir riskin var olduğunu gösteren bir QC sinyalidir. **İnsan/
+jeofizik nihai kararı (2026-07-16): canonical policy = A0 — background
+removal canonical zincire dahil edilmedi, tam olarak bu risk yüzünden
+(preservation-first politika).** A1-A8 repository'de deneysel/opt-in
+araçlar olarak kalıyor. Bkz.
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
-[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012.
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
 F-K filtering (henüz uygulanmadı), dipli gürültüyü frekans-dalga sayısı
 düzleminde temizler; dipli gerçek yansımalar da kaybedilebilir. Bu yüzden
 F-K hiçbir zaman varsayılan olarak açık olmamalıdır. Bkz.
@@ -148,17 +152,21 @@ Sprint 3'ün her iki yeni işlemi için de önler. Bkz.
 [[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]],
 [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]].
 
-## 16. Background-removal adayı (A1-A8 arasından) henüz seçilmedi
-(Sprint 4A'da üretildi, açık karar bekleyen konu — hata değil.) 8
-background-removal adayı (2 global + 6 sliding, D2+B1 canonical zinciri
-üzerinde) gerçek veride çalıştırıldı ve karşılaştırıldı; kodun kendisi
-hiçbirini diğerine karşı "doğru" olarak seçmedi. Global yöntemler
-(A1/A2) en riskli olanlardır (tüm profil üzerinden hesaplanan bir
-background); sliding yöntemler penceredan daha geniş bir olayı kendi
+## 16. Background-removal canonical politikası: A0 (uygulanmadı)
+(Sprint 4A'da üretildi, Sprint 4A Closure'da karar verildi —
+2026-07-16.) 8 background-removal adayı (2 global + 6 sliding, D2+B1
+canonical zinciri üzerinde) gerçek veride çalıştırıldı ve karşılaştırıldı;
+kodun kendisi hiçbirini diğerine karşı "doğru" olarak seçmedi. Global
+yöntemler (A1/A2) en riskli olanlardır (tüm profil üzerinden hesaplanan
+bir background); sliding yöntemler penceredan daha geniş bir olayı kendi
 merkezinde neredeyse tamamen yok eder (sentetik olarak doğrulandı,
-`window_length_vs_target_attenuation.png`). Bkz.
-[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012,
-[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+`window_length_vs_target_attenuation.png`). **İnsan/jeofizik nihai
+kararı: canonical policy = A0** (background removal uygulanmadı) —
+preservation-first politika, geri dönüşü olmayan bir işlemin gerçek uzun/
+yatay bir arkeolojik olayı bastırma riskini kabul etmemek. Bkz.
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı),
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 
 ## İlgili notlar
 [[01_PROJECT_STATE/03_Open_Issues]], [[07_VALIDATION/Known_Uncertainties]],

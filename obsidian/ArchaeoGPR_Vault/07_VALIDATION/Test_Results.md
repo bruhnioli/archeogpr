@@ -8,6 +8,63 @@ tags: [validation]
 Gerçek `pytest` terminal çıktıları, tarih sırasıyla (en yeni en üstte).
 Başarısız testler gizlenmez — şu ana kadar başarısız test kaydı yoktur.
 
+## 2026-07-16 (Sprint 4A Closure — Human Decision: Canonical Policy = A0, PR #1)
+
+Command:
+```bash
+pytest -v
+```
+
+Result:
+```text
+344 passed in 173.22s (0:02:53)
+```
+
+342 önceki test hiç bozulmadı; 2 yeni kapanış testi eklendi ve geçti:
+`tests/test_sprint4a_candidates.py::test_adr_009_records_the_a0_canonical_
+decision` (ADR-009 dosyasının var olduğu ve "Canonical background-removal
+policy: A0", "no_background_removal", "None of A1-A8 is selected
+canonical.", "No new canonical NPZ is produced", "Gain has not started"
+ifadelerini içerdiği doğrulandı), `tests/test_sprint4a_real_integration.
+py::test_sprint4a_closure_canonical_chain_has_no_background_removal`
+(canonical Sprint 3 NPZ'sinin gerçek `processing_history`'sinin tam olarak
+`[time_zero_correction, dc_offset_correction, dewow_correction,
+bandpass_correction]` olduğu, `background_removal` İÇERMEDİĞİ gerçek
+dosyada doğrulandı). Ayrıca mevcut `test_run_all_sprint4a_candidates_
+on_real_data` testine A0'ın gerçek bir çalıştırmada `candidate_metrics.csv`'nin
+ilk satırı olduğu ve hiçbir NPZ/klasör adının "A0" içermediği
+assertion'ları eklendi (yeni bir test fonksiyonu değil, mevcut testin
+genişletilmesi).
+
+### Diğer kalite kontrolleri (Sprint 4A Closure, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 66 dosya (temiz). `ruff check .`: `All checks passed!`.
+`mypy src/archaeogpr`: `Success: no issues found in 39 source files`.
+
+```bash
+python scripts/validate_obsidian_vault.py obsidian/ArchaeoGPR_Vault
+```
+`Markdown notes found: 71`, `Broken wikilinks: 0`, `Ambiguous wikilinks: 0`,
+`Orphan notes: 0`, `Result: PASS` (ADR-009 dahil).
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A Closure)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı (timing-metriği yeniden adlandırma sonrası) — girdi hash'i
+(`2044dd8f...82fd026`), ham dosya hash'i (`66d840c3...b62a6`), Sprint 2
+canonical hash'i (`b2770b5c...af5afe`) hepsi ÖNCEKİ çalıştırmayla
+bit-bazında özdeş. `candidate_metrics.csv`'de kolon `median_trace_cross_
+correlation_lag_w5` → `median_trace_cross_correlation_lag_proxy_w5`
+olarak yeniden adlandırıldığı doğrulandı; `BACKGROUND_FINAL_DECISION_
+REQUIRED.md`'nin "How to read this table" bölümünde yeni bir "Timing
+preservation" açıklaması bulunduğu doğrulandı. Tam detay:
+[[QC_Output_Validation]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+
 ## 2026-07-16 (Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline, PR #1)
 
 Command:
