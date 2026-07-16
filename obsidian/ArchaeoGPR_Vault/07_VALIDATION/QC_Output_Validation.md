@@ -480,9 +480,253 @@ combined_candidates}/` (202 dosya) ve `outputs/sprint03_1/` (24 dosya)
 **silinmedi/üzerine yazılmadı** — canonicalization çalıştırmasından önce
 ve sonra dosya sayıları karşılaştırıldı, değişmedi.
 
+---
+
+# Sprint 4A — Background Removal Candidate Development & Geophysical QC Outputs
+
+`outputs/sprint04a/` altında (repository'de, vault dışı), `python -m
+archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` ile üretildi.
+Girdi NPZ hash'i (`2044dd8f67957ee11590911bfbcaa410d2de29bd8ebfcae3b6aa06
+b5182fd026`), Sprint 2 canonical NPZ hash'i (`b2770b5c264214a119521c47eb
+f58252c457c1738594b200e814cff5b7af5afe`) ve raw `.ogpr` hash'i
+(`66d840c313b4beed10bea2e35d88431573f6fab0f02bba17792c0920028b62a6`) her
+ikisi de komut öncesi/sonrası karşılaştırıldı — değişmedi.
+
+## `background_candidates/{A1_global_mean,...,A8_sliding_median_150m}/`
+Her klasörde 18 dosya (`background_processed.npz`,
+`processing_metadata.json`, `processing_history.json`,
+`padding_verification.json`, `signal_preservation_metrics.json`,
+`removed_component_metrics.json`, `trace_spacing_and_window.json`,
+`candidate_validation.json`, `channel00_{before,after,removed,
+difference}.png`, `channel{05,10}_before_after_removed.png`,
+`all_channels_after.png`, `median_trace_before_after.png`,
+`removed_component_median_trace.png`, `removed_component_spectrum.png`)
+— 8×18=144 dosya, hepsi sıfır byte değil. Uygulanan pencereler: A3/A6
+(0.5m istenen) → 13 traces/0.5212m; A4/A7 (1.0m) → 25 traces/1.002m;
+A5/A8 (1.5m) → 37 traces/1.483m — hepsi tek sayıya yuvarlandı. Trace-
+spacing kaynağı: `metadata_sampling_step` (`trace_spacing_m=
+0.04008848472894169`) — canonical Sprint 3 NPZ'de geolocation taşınmadığı
+için metadata fallback'i doğru şekilde devreye girdi.
+
+## Programatik denetim (8 aday NPZ'si)
+Tüm 8 `background_processed.npz`: `allow_pickle=False` ile açıldı, shape
+`(175,11,1024)`, dtype float32, NaN/Inf yok, işleme geçmişi tam olarak
+`[time_zero_correction, dc_offset_correction, dewow_correction,
+bandpass_correction, background_removal]`, padding hem çıktıda hem
+removed component'te tam sıfır (8/8). Tüm 8 `candidate_validation.json`:
+`"canonical": false`, `"gain_applied": false`, `"padding_untouched":
+true`, `"removed_component_zero_at_padding": true`, `"no_nan_or_inf":
+true`, `"shape_matches_input": true`. 8 adayın çıktı-ortalaması ölçüldü —
+8 farklı değer (ölçülebilir fark, hiçbiri aynı değil).
+
+## Görsel denetim
+`BACKGROUND_DECISION_PANEL.png`: 6 panelli özet (RMS retention, waveform
+correlation, adjacent-trace correlation, spectral retention, removed/
+input energy ratio, removed-component coherence) — her panel 8 adayı
+gösteriyor, farklı yükseklikler görsel olarak doğrulandı.
+`BACKGROUND_DECISION_PANEL_DETAIL.png`: kanal 0, 20-100ns, 8 aday
+yan yana B-scan — A3/A6 (0.5m sliding) A1/A2 (global) ve A4/A5/A7/A8'e
+kıyasla görsel olarak daha fazla yapı kaldırmış (daha agresif). Bir
+adayın `channel00_before.png`/`channel00_after.png` çifti (A1_global_mean)
+görsel olarak doğrulandı: erken-zaman güçlü yatay bant (direct-wave/
+ringing) "after"ta büyük ölçüde bastırılmış, kalan yapı iz-bazlı değişim
+gösteriyor — global_mean'in beklenen davranışıyla tutarlı.
+
+## `background_candidates/comparison/`
+19 dosya: `channel{00,05,10}_all_candidates_20_100ns.png`,
+`removed_components_all_candidates_{20_100ns,full}.png`,
+`removed_component_coherence.png`, `removed_input_energy_ratio.png`,
+`signal_preservation_comparison.png`, `waveform_correlation_comparison.png`,
+`adjacent_trace_correlation_comparison.png`,
+`spectral_retention_comparison.png`,
+`window_length_vs_target_attenuation.png`,
+`global_vs_sliding_synthetic_comparison.png`,
+`mean_vs_median_outlier_comparison.png`, `candidate_metrics.csv`,
+`candidate_metrics_by_channel.csv` (24 satır = 8 aday × 3 kanal),
+`candidate_metrics_by_time_window.csv` (40 satır = 8 aday × 5 pencere, 54
+kolon — yeni metrikler dahil), `synthetic_target_attenuation.csv`,
+`trace_spacing_summary.json`, `BACKGROUND_REVIEW_REQUIRED.md`.
+
+## `BACKGROUND_FINAL_DECISION_REQUIRED.md` (üst düzey)
+Açılış satırları doğrulandı: `Status: review_required`, `No
+background-removal candidate has been selected as canonical.`, `Gain has
+not been started.`. Tablo 18 zorunlu kolonu da içeriyor (Candidate,
+Method, Requested window, Applied window traces, Applied window metres,
+Background suppression, Long-horizontal-event preservation,
+Localized-event preservation, Waveform correlation, RMS retention,
+Spectral retention, Adjacent-trace correlation, Removed-component
+coherence, Removed/input energy, Padding safety, Timing preservation,
+Engineering category, Main risk). Bu veri setinde tüm 8 adayın
+`Long-horizontal-event preservation` değeri sıfıra yakın (removed
+component'in yüksek mekânsal koheransının doğrudan sonucu) — bu risk
+gizlenmedi, açıkça raporlandı. `"best candidate"` ifadesi ve
+`recommended_background_candidate` alanı YOK.
+
+## Programatik denetim (genel)
+Toplam **164 dosya** üretildi (144 aday + 19 karşılaştırma + 1 üst düzey
+`BACKGROUND_FINAL_DECISION_REQUIRED.md`; ayrıca 2 üst düzey PNG). Tüm
+JSON'lar `json.loads()` ile geçerli, tüm CSV'ler `pandas` ile okundu
+(satır sayıları doğrulandı), tüm PNG'ler `matplotlib.image.imread()` ile
+açıldı ve tüm pikseller finite.
+
+---
+
+# Sprint 4A.1 — Background Decision QC Correction Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (aynı komut, düzeltilmiş kod). Girdi
+NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2 canonical NPZ hash'i ÖNCEKİ
+Sprint 4A çalıştırmasıyla bit-bazında özdeş kaldı (deterministik).
+
+## Üç yeni üst düzey dosya (asıl karar dosyaları)
+- `BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`: 3 kanal × 9 panel
+  (input + A1-A8), her kanal satırı TEK ortak simetrik scale kullanıyor.
+  Görsel olarak doğrulandı: ch00'da input güçlü doğrudan-dalga bandıyla
+  (±987 clip) satırın diğer 8 paneline göre çok daha yoğun görünüyor —
+  ortak scale'in gerçekten çalıştığının kanıtı (her panel kendi ölçeğine
+  normalize edilseydi hepsi "temiz" görünürdü).
+- `BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`: 3 kanal × 8 panel
+  (A1-A8 removed component), aynı ortak-scale kuralı. Görsel olarak
+  doğrulandı: A1/A2 (global) tamamen yatay/düz removed component
+  gösteriyor (beklenen — global background, tüm profilde tek değer);
+  A3-A8 (sliding) görünür şekilde daha dokulu/mekânsal değişken.
+- `BACKGROUND_METRICS_SUMMARY.png`: 8 panelli bar chart (yalnızca metrik,
+  B-scan yok). **Kritik gözlem:** `paired_control_long_target_retention`
+  paneli tüm 8 adayda ≈0 (0.00006-0.017 aralığında) gösteriyor —
+  `overall_rms_retention_tendency` panelinin (0.62-0.77) tam tersi bir
+  görsel izlenim veriyor, bu da RMS-bazlı tek metriğin yeterli olmadığını
+  doğrudan görsel olarak kanıtlıyor.
+
+## `BACKGROUND_FINAL_DECISION_REQUIRED.md` (18 kolon)
+Tüm 18 zorunlu kolon + 5 uyarı satırı programatik olarak doğrulandı.
+`Engineering interpretation` kolonunda A1 ve A2 için `CONFLICT` metni
+görüldü (`paired_control_long_target_retention`=0.00967/0.0000676,
+`overall_rms_retention_tendency`=0.772/0.774) — beklenen ve doğru.
+`Long-horizontal-event preservation`, `Localized-event preservation`,
+`1 - removed_component_coherence` ifadeleri metinde YOK — doğrulandı.
+
+## `background_candidates/comparison/` (22 dosya, güncellenmiş)
+`paired_control_target_attenuation.csv` (12 satır, 11 kolon: method,
+scenario, target_length_traces, window_traces, + 7 retention metriği) ve
+`paired_control_window_length_vs_target_attenuation.png` (yeni) eklendi.
+`channelNN_all_candidates_20_100ns.png` (3 dosya, eski isim) stale olarak
+tespit edildi (yeniden adlandırılmış `channelNN_median_trace_all_
+candidates_20_100ns.png`'nin öncesinden kalan, artık kod tarafından hiç
+yazılmıyor) ve temizlendi.
+
+## Programatik denetim (Sprint 4A.1)
+`candidate_metrics.csv`: 8 yeni kolon doğrulandı
+(`applied_window_nominal_length_m`, `applied_window_center_to_center_
+span_m`, `window_half_span_m`, `overall_rms_retention_tendency`,
+`removed_coherent_event_risk_proxy_w5`, `paired_control_short_target_
+retention`, `paired_control_long_target_retention`, `engineering_
+interpretation`). Tüm PNG'ler finite piksellerle açıldı. Tüm CSV'ler
+`pandas` ile okundu.
+
+## Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (aynı komut, düzeltilmiş kod). Girdi
+NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2 canonical NPZ hash'i ÖNCEKİ
+Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş kaldı (deterministik).
+
+### `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png` (yeni, `background_candidates/comparison/`)
+- Oluştu: Evet (155,864 byte, 1960×1260 piksel), tüm piksel finite.
+- Görsel/programatik denetim: 6 panel — `target_before` gerçek bir
+  parabolik yay gösteriyor (Sprint 4A.1'in düz olayına KIYASLA net bir
+  fark); `target_after` (sliding_mean/sliding_median) yayın şeklini genel
+  olarak koruyor ama kollarda görünür sönümleme/negatif yan-lob var
+  (sliding_mean'de daha güçlü); `target_mask` yayın gerçek desteğini
+  birebir örtüyor; merkez-sample yörüngesi 15 trace boyunca simetrik bir
+  V-şekli çiziyor, apex (sample=100) noktalı çizgiyle işaretli; apex-vs-kol
+  çubukları iki yöntem için de görünür şekilde farklı (sliding_mean:
+  apex=0.603, arm=0.701; sliding_median: apex=0.795, arm=0.869). Başlık:
+  "15 target traces, 7 unique center samples, max shift 12 samples,
+  comparison window 15 traces" — programatik olarak da doğrulandı.
+- `paired_control_target_attenuation.csv`'nin `localized_hyperbola`
+  satırlarında (`hyperbola_unique_center_sample_count=7`, `hyperbola_
+  realized_max_shift_samples=12.0`) tam olarak eşleşiyor.
+
+### `candidate_metrics.csv` (güncellenmiş, A0 satırı eklendi)
+- 9 satır (A0 + A1-A8), 25 kolon — programatik olarak doğrulandı. İlk
+  satır `id=A0`, `type=reference_policy`, `processing_applied=False`,
+  `overall_rms_retention_tendency=1.0`, `background_suppression=0.0`,
+  `paired_control_short_target_retention=1.0`, `paired_control_long_
+  target_retention=1.0`, `removed_coherent_event_risk_proxy_w5=not_
+  applicable`. A1/A2'nin `engineering_interpretation` metninde artık A0'a
+  karşı açık bir karşılaştırma cümlesi var (Sprint 4A.1'in `CONFLICT`
+  bayrağına ek olarak).
+
+### `BACKGROUND_METRICS_SUMMARY.png` (güncellenmiş, 172,972 byte)
+- Görsel/programatik denetim: 8 panelin 7'sinde ("removed_coherent_event_
+  risk_proxy" HARİÇ) A1-A8'den ayrı, gri, noktalı çizgiyle bölünmüş bir A0
+  çubuğu var, hepsi 1.0'da (background_suppression paneli hariç, 0'da).
+  `paired_control_long_target_retention` panelinde A0'ın çubuğu (1.0) A1-
+  A8'in tümünden (≈0) görsel olarak çarpıcı biçimde farklı — Sprint 4A.1'in
+  bulgusunu (hiçbir aday uzun hedefi korumuyor) doğrudan A0 ile karşılaştırarak
+  daha da netleştiriyor.
+
+### `BACKGROUND_FINAL_DECISION_REQUIRED.md` (A0 satırı + yeni disclaimer'lar)
+Programatik olarak doğrulandı: A0 tablonun İLK satırı; 7 gerekli disclaimer
+satırının hepsi mevcut ("A0 is the no-background-removal reference.", "A0
+is not a new filter method.", tüm A1-A8'in paired-control uzun hedefi
+güçlü şekilde zayıflattığı ifadesi — bu veri setinde `< 0.3` eşiği tüm 8
+adayda gerçekten sağlandığı için veri-bazlı cümle tetiklendi —, "High
+overall RMS retention does not imply long-target preservation.", "Human
+reviewer may select \"no background removal\".", "No canonical decision
+is made automatically.", "Gain has not started."). A0 satırının hiçbir
+sütununda bir `ProcessingResult`'tan türetilmiş bir değer yok (hepsi sabit).
+
+### Programatik denetim (Sprint 4A.2, genel)
+`background_candidates/{A1_global_mean,...,A8_sliding_median_150m}/`
+klasörlerinin hiçbirinde `A0` içeren bir dosya/klasör adı YOK (aranıp
+doğrulandı). Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical hash'leri
+üçü de Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş.
+
+## Sprint 4A Closure — Human Decision Outputs (2026-07-16, PR #1)
+
+`outputs/sprint04a/` yeniden üretildi (timing-metriği yeniden adlandırma
+sonrası, aynı komut). Girdi NPZ hash'i, ham `.ogpr` hash'i ve Sprint 2
+canonical NPZ hash'i ÖNCEKİ Sprint 4A.2 çalıştırmasıyla bit-bazında özdeş
+kaldı.
+
+### `candidate_metrics.csv` (timing kolonu yeniden adlandırıldı)
+- Programatik olarak doğrulandı: kolon başlığı artık `median_trace_
+  cross_correlation_lag_proxy_w5` (eski ad `median_trace_cross_
+  correlation_lag_w5` artık hiçbir dosyada YOK — aranıp doğrulandı).
+- A0 satırı hâlâ ilk satır, 9 satır × 25 kolon değişmedi.
+
+### `BACKGROUND_FINAL_DECISION_REQUIRED.md` (yeni timing açıklaması)
+"How to read this table" bölümünde yeni bir madde doğrulandı: "Timing
+preservation" kolonunun bir çapraz-korelasyon PİKİ gecikmesi olduğu,
+programatik bir sample shift OLMADIĞI, background removal'ın örnek/zaman
+eksenini asla yeniden örneklemediği/kaydırmadığı açıkça yazılı.
+
+### `outputs/sprint04a/` genel — A0 hâlâ hiçbir dosya adında yok
+`background_candidates/` altında (aranıp doğrulandı) hiçbir dosya/klasör
+adında `A0` YOK. Ham `.ogpr`, Sprint 2 canonical, Sprint 3 canonical
+hash'lerinin üçü de bu kapanış çalıştırmasıyla bit-bazında özdeş kaldı.
+
+### Vault — ADR-009 ve ISSUE-012
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_009_Canonical_No_Background_
+Removal_Policy.md` oluşturuldu ve `python scripts/validate_obsidian_
+vault.py` ile doğrulandı (71 not, 0 broken wikilink, 0 orphan).
+`01_PROJECT_STATE/03_Open_Issues.md`'deki ISSUE-012 "Resolved" olarak
+işaretlendi. `02_SPRINTS/Sprint_04A_Background_Removal.md`'nin frontmatter
+`status` alanı `review_required` → `done` olarak güncellendi.
+
+### Programatik denetim (Sprint 4A Closure)
+`tests/test_sprint4a_candidates.py::test_adr_009_records_the_a0_
+canonical_decision` ve `tests/test_sprint4a_real_integration.py::
+test_sprint4a_closure_canonical_chain_has_no_background_removal`
+gerçek dosyalarla çalıştırıldı, ikisi de geçti. Tam test sonucu:
+[[Test_Results]].
+
 ## İlgili notlar
 [[Test_Results]], [[Parser_Validation]], [[04_DATASETS/Swath003_Array02]],
 [[Sprint_02_TimeZero_DCOffset]], [[Sprint_02_1_TimeZero_DCOffset_Review]],
 [[Sprint_02_2_TimeAxis_DCWindow_Validation]], [[Sprint_03_Dewow_Bandpass]],
 [[Sprint_03_1_Dewow_Bandpass_Decision_QC]],
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
+[[02_SPRINTS/Sprint_04A_Background_Removal]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]

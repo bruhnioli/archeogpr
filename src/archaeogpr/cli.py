@@ -16,6 +16,10 @@
         --output-dir outputs/sprint03/canonical_D2_B1 \\
         --dewow-method running-mean --dewow-window-ns 8 --dewow-edge-mode reflect \\
         --bandpass-method butterworth --lowcut-mhz 100 --highcut-mhz 900 --order 4 --zero-phase
+    python -m archaeogpr background outputs/sprint03/canonical_D2_B1/sprint03_processed.npz \\
+        --output-dir outputs/sprint04a/background_manual --method sliding-mean --window-m 1.0
+    python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/sprint03_processed.npz \\
+        --output-dir outputs/sprint04a
 
 Tracebacks are hidden by default; pass --debug (before the subcommand) to see them.
 """
@@ -48,12 +52,23 @@ from archaeogpr.export.processed import (
     write_valid_sample_summary_json,
 )
 from archaeogpr.export.sprint3 import read_processed_npz, write_padding_verification_json
+from archaeogpr.export.sprint4a import (
+    write_removed_component_metrics_json,
+    write_signal_preservation_metrics_json,
+    write_trace_spacing_and_window_json,
+)
 from archaeogpr.io.exceptions import OGPRError
 from archaeogpr.io.ogpr_reader import read_ogpr, read_ogpr_header
 from archaeogpr.model.dataset import GPRDataset
 from archaeogpr.processing import ProcessingError, ProcessingResult, correct_dc_offset, correct_time_zero
+from archaeogpr.processing.background import remove_background
 from archaeogpr.processing.bandpass import correct_bandpass
 from archaeogpr.processing.dewow import correct_dewow
+from archaeogpr.qc.background import (
+    compute_removed_component_metrics,
+    compute_signal_preservation_metrics,
+    save_background_qc_suite,
+)
 from archaeogpr.qc.bandpass import save_bandpass_qc_suite
 from archaeogpr.qc.bscan import (
     save_all_channels_bscan,
@@ -76,6 +91,7 @@ from archaeogpr.sprint3_canonical import (
     run_sprint3_canonical,
     write_canonical_processing_note,
 )
+from archaeogpr.sprint4a_candidates import run_all_sprint4a_candidates
 
 _TIME_ZERO_METHOD_CHOICES = ("manual", "channel-median-peak", "channel-median-cross-correlation")
 _PEAK_POLARITY_CHOICES = ("max-abs", "positive-peak", "negative-peak")
@@ -85,6 +101,7 @@ _WINDOW_REFERENCE_CHOICES = ("dataset-time", "sample-index")
 _DEWOW_METHOD_CHOICES = ("running-mean", "running-median")
 _EDGE_MODE_CHOICES = ("reflect", "nearest")
 _BANDPASS_METHOD_CHOICES = ("butterworth", "ormsby")
+_BACKGROUND_METHOD_CHOICES = ("global-mean", "global-median", "sliding-mean", "sliding-median")
 
 #: Sprint 2.2 / ADR-004 canonical DC-offset window: far enough from the
 #: direct-wave/time-zero event to give a target-sample-invariant DC bias
@@ -509,6 +526,79 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="zero_phase",
         action="store_false",
         help="Use a single causal pass instead -- NOT the canonical B1 selection",
+    )
+
+    background_parser = subparsers.add_parser(
+        "background",
+        help=(
+            "Run background removal (global/sliding mean or median, trace-axis only) on a "
+            "processed NPZ. Never marks a run canonical -- see CLAUDE.md/ADR-008."
+        ),
+    )
+    background_parser.add_argument("input", type=Path, help="Path to a Sprint 2/3-style processed NPZ")
+    background_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("outputs/sprint04a/background_manual"),
+        help="Directory for generated outputs",
+    )
+    background_parser.add_argument(
+        "--channel", type=int, default=0, help="Channel for detailed QC (default: 0)"
+    )
+    background_parser.add_argument(
+        "--method",
+        choices=_BACKGROUND_METHOD_CHOICES,
+        default="global-mean",
+        help="Background-removal method (default: global-mean). This CLI never marks a run canonical.",
+    )
+    background_parser.add_argument(
+        "--window-traces", type=int, default=None, help="Sliding methods only: window width, traces"
+    )
+    background_parser.add_argument(
+        "--window-m", type=float, default=None, help="Sliding methods only: window width, metres"
+    )
+    background_parser.add_argument(
+        "--edge-mode",
+        choices=_EDGE_MODE_CHOICES,
+        default="reflect",
+        help="Sliding methods only: edge handling at profile boundaries (default: reflect)",
+    )
+    background_parser.add_argument(
+        "--trace-spacing-m",
+        type=float,
+        default=None,
+        help="Explicit trace spacing, metres -- overrides geolocation/metadata-derived spacing",
+    )
+    background_parser.add_argument(
+        "--allow-reprocessing",
+        action="store_true",
+        help="Allow re-applying background_removal if already present in the input's processing_history",
+    )
+
+    sprint4a_candidates_parser = subparsers.add_parser(
+        "sprint4a-candidates",
+        help=(
+            "Run all 8 Sprint 4A background-removal candidates (A1-A8) + QC comparisons + decision "
+            "panel. Selects nothing canonical."
+        ),
+    )
+    sprint4a_candidates_parser.add_argument(
+        "input", type=Path, help="Path to the canonical Sprint 3 processed NPZ"
+    )
+    sprint4a_candidates_parser.add_argument(
+        "--output-dir", type=Path, default=Path("outputs/sprint04a"), help="Directory for generated outputs"
+    )
+    sprint4a_candidates_parser.add_argument(
+        "--background-config",
+        type=Path,
+        default=Path("configs/background_candidates.yaml"),
+        help="Background-removal candidates YAML config",
+    )
+    sprint4a_candidates_parser.add_argument(
+        "--sprint2-canonical-npz",
+        type=Path,
+        default=Path("outputs/sprint02/canonical_target16/sprint02_processed.npz"),
+        help="Sprint 2 canonical NPZ, hashed for the acceptance-criteria record (not required to exist)",
     )
 
     return parser
@@ -1179,6 +1269,118 @@ def _cmd_sprint3(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_background(args: argparse.Namespace) -> int:
+    before_hash = file_sha256(args.input)
+    dataset, valid_mask = read_processed_npz(args.input)
+
+    print(f"Input file: {args.input}")
+    print(f"Input hash (sha256): {before_hash}")
+    print(f"Input shape: {dataset.shape}, dtype: {dataset.amplitudes.dtype}")
+    print(f"Input processing history: {[record['operation'] for record in dataset.processing_history]}")
+
+    method = args.method.replace("-", "_")
+    kwargs: dict[str, Any] = {
+        "method": method,
+        "valid_mask": valid_mask,
+        "allow_reprocessing": args.allow_reprocessing,
+    }
+    if method in ("sliding_mean", "sliding_median"):
+        kwargs.update(
+            window_traces=args.window_traces,
+            window_m=args.window_m,
+            edge_mode=args.edge_mode,
+            trace_spacing_m=args.trace_spacing_m,
+        )
+
+    result = remove_background(dataset, **kwargs)
+
+    output_dir: Path = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    signal_preservation = compute_signal_preservation_metrics(dataset, result, valid_mask)
+    removed_metrics = compute_removed_component_metrics(dataset, result, valid_mask)
+
+    generated: list[Path] = [
+        write_corrected_npz(result, output_dir / "background_processed.npz"),
+        write_processing_metadata_json(result, output_dir / "processing_metadata.json"),
+        write_padding_verification_json(result, output_dir / "padding_verification.json"),
+        write_trace_spacing_and_window_json(result, output_dir / "trace_spacing_and_window.json"),
+        write_signal_preservation_metrics_json(
+            signal_preservation, output_dir / "signal_preservation_metrics.json"
+        ),
+        write_removed_component_metrics_json(removed_metrics, output_dir / "removed_component_metrics.json"),
+    ]
+    generated.extend(save_background_qc_suite(dataset, result, output_dir, channel=args.channel).values())
+
+    diag = result.diagnostics
+    print(f"Background-removal method: {diag['method']}")
+    print(f"Edge mode: {diag['edge_mode']}")
+    print(f"Trace spacing: {diag['trace_spacing']}")
+    if diag["applied_window_traces"] is None:
+        print("Applied window: not applicable (global method)")
+    elif diag["applied_window_nominal_length_m"] is not None:
+        print(
+            f"Applied window: {diag['applied_window_traces']} traces "
+            f"(nominal length {diag['applied_window_nominal_length_m']:.4g} m, "
+            f"center-to-center span {diag['applied_window_center_to_center_span_m']:.4g} m, "
+            f"half-span {diag['window_half_span_m']:.4g} m)"
+        )
+    else:
+        print(f"Applied window: {diag['applied_window_traces']} traces (metres unknown -- no trace spacing)")
+    print(f"Removed-component statistics: {diag['removed_component_statistics']}")
+    print(f"Output statistics: {diag['output_statistics']}")
+    if result.warnings:
+        print("Warnings:")
+        for warning in result.warnings:
+            print(f"  - {warning}")
+    print("Generated outputs:")
+    for path in generated:
+        print(f"  - {path}")
+    print(f"Output shape: {result.dataset.shape}, dtype: {result.dataset.amplitudes.dtype}")
+    print(
+        f"Output processing history: {[record['operation'] for record in result.dataset.processing_history]}"
+    )
+    after_hash = file_sha256(args.input)
+    print(f"Input file hash unchanged: {before_hash == after_hash}")
+    print("Canonical selected: false")
+    print("Gain applied: false")
+    return 0
+
+
+def _cmd_sprint4a_candidates(args: argparse.Namespace) -> int:
+    before_hash = file_sha256(args.input)
+    print(f"Input file: {args.input}")
+    print(f"Input hash (sha256): {before_hash}")
+
+    result = run_all_sprint4a_candidates(
+        args.input,
+        args.output_dir,
+        background_config_path=args.background_config,
+        sprint2_canonical_npz_path=args.sprint2_canonical_npz,
+    )
+
+    dataset = result["dataset"]
+    print(f"Input shape: {dataset.shape}, dtype: {dataset.amplitudes.dtype}")
+    print(f"Input processing history: {[record['operation'] for record in dataset.processing_history]}")
+    print(f"Background candidates run: {[info['id'] for info in result['candidates']]}")
+    print(f"Engineering categories: {result['engineering_categories']}")
+    print(f"Raw .ogpr hash: {result['raw_file_sha256']}")
+    print(f"Sprint 2 canonical NPZ hash: {result['sprint2_canonical_sha256']}")
+    print(f"Sprint 3 canonical NPZ hash unchanged: {result['input_hash_unchanged']}")
+    print(f"Output directory: {args.output_dir}")
+    print(f"Decision panel (historical compatibility only): {result['decision_panel_path']}")
+    print(f"Decision panel detail (historical compatibility only): {result['decision_panel_detail_path']}")
+    print(f"Common-scale output comparison (ch00/05/10): {result['output_comparison_path']}")
+    print(f"Common-scale removed comparison (ch00/05/10): {result['removed_comparison_path']}")
+    print(f"Metrics summary panel: {result['metrics_summary_path']}")
+    print(f"Final decision file: {result['final_decision_path']}")
+    after_hash = file_sha256(args.input)
+    print(f"Input file hash unchanged: {before_hash == after_hash}")
+    print("Canonical selected: false")
+    print("Gain started: false")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1201,6 +1403,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_sprint3_candidates(args)
         if args.command == "sprint3":
             return _cmd_sprint3(args)
+        if args.command == "background":
+            return _cmd_background(args)
+        if args.command == "sprint4a-candidates":
+            return _cmd_sprint4a_candidates(args)
         parser.error(f"unknown command {args.command!r}")
         return 2
     except (OGPRError, ProcessingError) as exc:

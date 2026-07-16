@@ -11,16 +11,19 @@ archaeological GPR visualization.
 that every OpenGPR file is supported — see
 [Parser scope and limitations](#parser-scope-and-limitations).
 
-**Implemented so far (Sprint 1 – Sprint 3 canonicalization):** file reading,
+**Implemented so far (Sprint 1 – Sprint 4A):** file reading,
 data modeling, header/metadata validation, basic QC outputs (plots, CSV,
-JSON, NPZ), time-zero correction, DC offset correction, dewow, and
-zero-phase band-pass filtering. For the validated sample dataset
-(`Swath003_Array02.ogpr`), a **canonical processing chain has been
-selected by human/geophysical review**: Sprint 2 canonical
+JSON, NPZ), time-zero correction, DC offset correction, dewow,
+zero-phase band-pass filtering, and background removal. For the validated
+sample dataset (`Swath003_Array02.ogpr`), a **canonical processing chain
+has been selected by human/geophysical review**: Sprint 2 canonical
 (`target_sample=16`) → **D2** dewow → **B1** band-pass — see
 [Canonical Sprint 3 selection (D2 + B1)](#canonical-sprint-3-selection-d2--b1)
-below. No archaeological interpretation, background removal, gain, F-K
-filtering, velocity analysis, or migration is implemented yet — see
+below. **Background-removal algorithms are implemented as Sprint 4A
+candidates, but no candidate has been selected as canonical** — see
+[Sprint 4A background-removal candidates](#sprint-4a-background-removal-candidates)
+below. No archaeological interpretation, gain, F-K filtering, velocity
+analysis, or migration is implemented yet — see
 [Not yet implemented](#not-yet-implemented).
 
 ## Installation
@@ -107,6 +110,18 @@ python -m archaeogpr sprint3 outputs/sprint02/canonical_target16/sprint02_proces
   --output-dir outputs/sprint03/canonical_D2_B1 \
   --dewow-method running-mean --dewow-window-ns 8 --dewow-edge-mode reflect \
   --bandpass-method butterworth --lowcut-mhz 100 --highcut-mhz 900 --order 4 --zero-phase
+
+# Background removal on the canonical Sprint 3 (D2+B1) output. Never marks
+# a run canonical -- for experimentation/comparison only.
+python -m archaeogpr background outputs/sprint03/canonical_D2_B1/sprint03_processed.npz \
+  --output-dir outputs/sprint04a/manual_background \
+  --method sliding-median --window-m 1.0 --edge-mode reflect
+
+# Run all 8 background-removal candidates (A1-A8, configs/background_candidates.yaml)
+# + QC comparisons + decision panel. Selects nothing canonical -- see
+# "Sprint 4A background-removal candidates" below.
+python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/sprint03_processed.npz \
+  --output-dir outputs/sprint04a
 ```
 
 Tracebacks are hidden by default on error; pass `--debug` (before the
@@ -176,6 +191,26 @@ candidate under its own subfolder, plus a `comparison/*_REVIEW_REQUIRED.md`
 per family and a top-level `SPRINT3_REVIEW_REQUIRED.md` — see
 [Canonical Sprint 3 selection](#canonical-sprint-3-selection-d2--b1).
 
+`background`/`sprint4a-candidates` write into their own `--output-dir`
+(default `outputs/sprint04a/...`):
+
+| File | Contents |
+|---|---|
+| `background_processed.npz` | Background-removed `amplitudes` + `removed_component` + full `processing_history` |
+| `channel00_{before,after,removed,difference}.png`, `channel{05,10}_before_after_removed.png`, `all_channels_after.png` | Before/after/removed-component B-scans |
+| `median_trace_before_after.png`, `removed_component_median_trace.png`, `removed_component_spectrum.png` | Median-trace and spectral QC of the removed component |
+| `signal_preservation_metrics.json`, `removed_component_metrics.json` | Per-time-window waveform/RMS/spectral retention and removed-component energy/coherence/localized-event-risk metrics |
+| `trace_spacing_and_window.json` | Requested vs. applied window (traces/metres), trace-spacing source (`geolocation`/`metadata_sampling_step`/`unavailable`) — never a hardcoded constant |
+| `padding_verification.json`, `processing_metadata.json`, `processing_history.json` | Same contract as the Sprint 3 files above |
+| `candidate_validation.json` | Machine-readable acceptance checklist (shape/dtype/padding/hash/canonical=false/gain_applied=false) |
+
+`sprint4a-candidates` additionally writes one such set per A1–A8 candidate
+under its own subfolder, plus `comparison/` (cross-candidate PNGs/CSVs +
+synthetic risk-experiment outputs + `BACKGROUND_REVIEW_REQUIRED.md`) and
+two top-level files, `BACKGROUND_DECISION_PANEL.png` (+ `_DETAIL.png`) and
+`BACKGROUND_FINAL_DECISION_REQUIRED.md` — see
+[Sprint 4A background-removal candidates](#sprint-4a-background-removal-candidates).
+
 ## Canonical Sprint 3 selection (D2 + B1)
 
 Sprint 3 produced four dewow candidates (D1–D4) and four band-pass
@@ -203,6 +238,34 @@ dataset or acquisition setting requires its own Sprint-3-style candidate
 comparison and its own human/geophysical review before any parameters may
 be treated as canonical for it — see
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_007_Canonical_D2_B1_Selection.md`.
+
+## Sprint 4A background-removal candidates
+
+**Sprint 4A status: `review_required`.** Background removal (`processing/background.py`, `remove_background()`) is
+implemented as four methods — `global_mean`, `global_median`,
+`sliding_mean`, `sliding_median` — computed independently per channel
+(channels are never merged into one background). Sprint 4A ran eight
+candidates (A1–A8: 2 global + 6 sliding at 0.5/1.0/1.5 m windows) on the
+canonical Sprint 3 (D2+B1) output and produced full signal-preservation
+and removed-component QC for each. **This is, by a wide margin, the most
+scientifically risky filter this project has implemented**: a
+moving-average/median estimate along the trace axis cannot, on its own,
+distinguish an unwanted common-mode component from a genuinely long,
+laterally continuous archaeological reflection.
+
+**Background-removal algorithms are implemented as Sprint 4A candidates,
+but no candidate has been selected as canonical.** Run
+`python -m archaeogpr sprint4a-candidates` (see [CLI usage](#cli-usage))
+to reproduce all 8 candidates; the output lives in `outputs/sprint04a/`
+and includes `BACKGROUND_DECISION_PANEL.png` and
+`BACKGROUND_FINAL_DECISION_REQUIRED.md`, both explicitly requiring
+human/geophysical review before any candidate is used for anything beyond
+QC comparison. On this dataset, every candidate's removed component shows
+high spatial coherence (adjacent-trace correlation 0.83–1.0) — a risk
+signal reported transparently, not a basis for automatic selection.
+
+**Gain has not been started** — see [Not yet implemented](#not-yet-implemented).
+Full rationale: `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy.md`.
 
 ## Radar array axis order
 
@@ -285,14 +348,16 @@ Unit tests (`test_ogpr_reader.py`, `test_data_model.py`, `test_time_zero.py`,
 `test_dc_offset.py`, `test_dewow.py`, `test_bandpass.py`, `test_spectrum.py`,
 `test_sprint3_pipeline.py`, `test_sprint3_1_decision_qc.py`,
 `test_sprint3_canonical.py`, `test_cli_sprint3_canonical.py`,
+`test_background.py`, `test_background_qc.py`, `test_sprint4a_pipeline.py`,
 `test_processing_history.py`, `test_target_invariance.py`,
 `test_export_processed.py`) use synthetic in-memory fixtures and always
 run. `test_real_ogpr_integration.py`, `test_sprint2_real_integration.py`,
-`test_sprint3_real_integration.py`, `test_sprint3_canonical.py`, and
-`test_cli_sprint3_canonical.py` also include real-file checks that run
-only if `data/raw/Swath003_Array02.ogpr` is present, and otherwise skip
-cleanly (not a failure) — this is why CI (see badge above) is expected to
-show these real-file cases as **skipped**, since the raw sample file is
+`test_sprint3_real_integration.py`, `test_sprint3_canonical.py`,
+`test_cli_sprint3_canonical.py`, and `test_sprint4a_real_integration.py`
+also include real-file checks that run only if
+`data/raw/Swath003_Array02.ogpr` is present, and otherwise skip cleanly
+(not a failure) — this is why CI (see badge above) is expected to show
+these real-file cases as **skipped**, since the raw sample file is
 intentionally excluded from version control.
 
 Also run as part of CI:
@@ -306,7 +371,7 @@ python scripts/validate_obsidian_vault.py obsidian/ArchaeoGPR_Vault
 
 ## Implementation status
 
-**Implemented (Sprint 1 – Sprint 3 canonicalization):** file reading
+**Implemented (Sprint 1 – Sprint 4A):** file reading
 (`io/`), the immutable data model (`model/`), metadata/QC derivation and
 plots (`qc/`), basic exports (`export/basic.py`), time-zero correction and
 DC offset correction (`processing/time_zero.py`, `processing/dc_offset.py`),
@@ -315,27 +380,35 @@ dewow (`processing/dewow.py`), zero-phase band-pass filtering
 candidate-comparison orchestration (`sprint3_candidates.py` — never marks
 anything canonical), the canonical D2+B1 Sprint 3 chain
 (`sprint3_canonical.py`, human/geophysical selection — see
-[Canonical Sprint 3 selection](#canonical-sprint-3-selection-d2--b1)), and
-the CLI. See `obsidian/ArchaeoGPR_Vault/02_SPRINTS/` for the full sprint
-records and `06_DECISIONS/ADR_001..007` for the architectural decisions
-behind each of them.
+[Canonical Sprint 3 selection](#canonical-sprint-3-selection-d2--b1)),
+background removal (`processing/background.py`, four methods, 8 Sprint 4A
+candidates — see
+[Sprint 4A background-removal candidates](#sprint-4a-background-removal-candidates),
+**no candidate canonical**), and the CLI. See
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/` for the full sprint records and
+`06_DECISIONS/ADR_001..008` for the architectural decisions behind each
+of them.
 
 ## Not yet implemented
 
 None of the following are implemented. No placeholder, partial, or
 fake-working code exists for them:
 
-background removal, gain, AGC, F-K filtering, velocity analysis,
-migration, Hilbert envelope, depth slices, anomaly detection,
-archaeological classification, Blender export, GIS export, GUI,
-trace-by-trace (per-trace-independent) automatic time-zero warping,
-sub-sample shifting.
+gain, AGC, F-K filtering, velocity analysis, migration, Hilbert envelope,
+depth slices, anomaly detection, archaeological classification, Blender
+export, GIS export, GUI, trace-by-trace (per-trace-independent) automatic
+time-zero warping, sub-sample shifting.
 
-See `05_PROCESSING/` in the Obsidian vault for their planned (not
-implemented) API shape, and
+**Background-removal algorithms are implemented as Sprint 4A candidates,
+but no candidate has been selected as canonical** — see
+[Sprint 4A background-removal candidates](#sprint-4a-background-removal-candidates).
+
+See `05_PROCESSING/` in the Obsidian vault for the planned (not
+implemented) API shape of the modules above, and
 `obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/02_Next_Development_Sprint.md`
-for how a future Sprint 4 covering some of these would be scoped — it is
-not started, and the D2+B1 canonical selection above does not, by itself,
+for how a future sprint (e.g. Gain, or a canonical background-removal
+selection) would be scoped — it is not started, and neither the D2+B1
+canonical selection nor the Sprint 4A candidates above, by themselves,
 start it.
 
 ## Obsidian Knowledge Base

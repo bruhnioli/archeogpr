@@ -182,12 +182,48 @@ karşılaştırmasını ve kendi insan/jeofizik incelemesini gerektirir. B1'in
 yorumu OLMADIĞI (yalnızca bir QC gözlemi) ADR-007'de açıkça belirtiliyor.
 Bkz. `outputs/sprint03_1/{D2_DEWOW_DECISION.md,BANDPASS_FINAL_DECISION_REQUIRED.md}`.
 
+## Background-removal adayı seçimi (Sprint 4A, kod hatası değil — insan kararıyla 2026-07-16'da kapatıldı)
+Sprint 4A, 8 background-removal adayı (2 global + 6 sliding, canonical
+Sprint 3 çıktısı üzerinde) üretti ve karşılaştırdı; kodun kendisi
+hiçbirini diğerine karşı "doğru" olarak seçmedi. Bu, dewow/band-pass
+seçiminden (ISSUE-010/011) daha da bilimsel açıdan risklidir — background
+removal, gerçek uzun/yatay bir yansımayı ortak-mod gürültüden hiçbir
+zaman ayırt edemez, bu yöntemin kendi doğasında var olan bir sınırlamadır
+(bir aday seçilse bile bu sınırlama ortadan kalkmaz). Bu veri setinde
+tüm 8 adayın removed component'i yüksek mekânsal koherans gösteriyor
+(0.83-1.0, W5) ve paired-control uzun-hedef retention'ı tüm 8 adayda
+0.3'ün çok altında (gerçek: 0.0000676-0.0172) — bu, hangi aday seçilirse
+seçilsin gerçek bir riskin var olduğunu gösteren bir QC sinyalidir,
+"gerçek bir hedef yok" anlamına gelmez. **2026-07-16'da kullanıcı bunu
+insan/jeofizik nihai kararı olarak kapattı: canonical policy = A0**
+(background removal uygulanmadı, preservation-first) — bkz.
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı),
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]. A1-A8
+repository'de deneysel/opt-in araçlar olarak kalıyor; bu karar yalnızca
+`Swath003_Array02.ogpr` için geçerlidir.
+
+## Trace-spacing kaynağının veri setine göre değişebilmesi (Sprint 4A, mimari not — hata değil)
+`compute_trace_spacing()`'in önceliği (geolocation → metadata
+`sampling_step_m` → unavailable) tasarım gereği veri setine göre farklı
+bir kaynak seçebilir. Bu gerçek dosyada: canonical Sprint 3 NPZ'si
+geolocation dizileri taşımadığı için (bu projenin işlenmiş NPZ'leri şu an
+geolocation kaydetmiyor), gerçek çalıştırma `metadata_sampling_step`
+kaynağını kullandı (`trace_spacing_m=0.04008848472894169`) — bu, ham
+`.ogpr` dosyasının kendi geolocation'ından ölçülen bir değer DEĞİL,
+dosyanın `sampling.sampling_step_m` metadata alanından okunan bir
+nominal survey-design değeridir. Bu ayrım `trace_spacing_and_window.json`
+her aday için ayrı ayrı kaydedilir (`trace_spacing_source` alanı). Bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
 ## İlgili notlar
 [[01_PROJECT_STATE/04_Risks_and_Limitations]], [[01_PROJECT_STATE/03_Open_Issues]],
 [[Parser_Validation]], [[06_DECISIONS/ADR_004_TimeZero_Relative_Axis_and_DC_Window]],
 [[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]],
 [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]],
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]],
 [[02_SPRINTS/Sprint_03_Dewow_Bandpass]],
-[[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]
+[[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]],
+[[02_SPRINTS/Sprint_04A_Background_Removal]]

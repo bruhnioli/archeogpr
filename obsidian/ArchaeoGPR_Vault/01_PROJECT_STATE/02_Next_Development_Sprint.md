@@ -3,75 +3,123 @@ type: project-state
 tags: [project-state, sprint]
 ---
 
-# Next Development Sprint — Sprint 4 (henüz tanımlanmadı)
+# Next Development Sprint — Sprint 4B / Gain (henüz tanımlanmadı)
 
-## Durum: D2 + B1 canonical seçildi; sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
+## Durum: Sprint 4A done (canonical policy = A0); sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
 
-Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) dewow ve band-pass
-algoritmalarını, frekans spektrumu QC'sini ve aday parametre
-karşılaştırmalarını (dewow D1-D4, band-pass B1-B4, kombine C1-C6)
-uyguladı. Sprint 3.1
-([[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]]), D2 dewow adayını
-ayrıntılı doğruladı (4/4 koşul geçti → `recommended_dewow_candidate = D2`,
-mühendislik önerisi) ve yalnızca B1/B2 band-pass adaylarını karar-odaklı QC
-ile karşılaştırdı (mühendislik eğilimi: preservation-favoring/B1).
-**2026-07-15'te kullanıcı bu iki öneriyi insan/jeofizik kararı olarak
-onayladı: D2 dewow + B1 band-pass canonical** — bkz.
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]], `outputs/sprint03/canonical_D2_B1/`.
-Toplam 254/254 test geçti; gerçek veride sıfır-faz, padding-güvenliği,
-hash-değişmezliği ve determinizm doğrulandı.
+Sprint 4A ([[02_SPRINTS/Sprint_04A_Background_Removal]]) dört
+background-removal yöntemini (global_mean, global_median, sliding_mean,
+sliding_median) implemente etti ve 8 aday (A1-A8) canonical Sprint 3
+çıktısı (D2+B1, bkz. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]])
+üzerinde gerçek veride çalıştırdı. Sinyal-koruma ve removed-component
+metrikleri her aday/kanal/zaman-penceresi için hesaplandı; 5 synthetic
+bilimsel-risk deneyi (window-length vs target-length, global-vs-sliding
+uzun-olay, mean-vs-median outlier, edge testleri) çalıştırıldı. **Hiçbir
+aday otomatik olarak canonical seçilmedi** — bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+`outputs/sprint04a/`.
 
-**Next action: the user's own explicit request to define and start
-Sprint 4.**
+**Sprint 4A.1 düzeltmesi (2026-07-16):** karar QC'sindeki üç kusur
+(pencere terminolojisi, bağımsız-ölçekli B-scan'ler, `1 - coherence`
+"preservation" çerçevesi) düzeltildi ve YENİ bir paired-control sentetik
+hedef-retention deneyi eklendi — bu deney, RMS-bazlı "preservation-
+favoring" etiketinin (A1/A2) gerçekte uzun sentetik hedefleri neredeyse
+tamamen yok ettiğini (`paired_control_long_target_retention` ≈
+0.00007-0.01) ortaya çıkardı. Bkz.
+[[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.1" bölümü.
 
-D2/B1'in canonical seçilmiş olması, tek başına, Sprint 4'ü
-BAŞLATMAZ — bu proje hiçbir sprintte kendi kendine bir sonraki sprinte
-geçmez. **Sprint 4 henüz TANIMLANMADI ve kullanıcının kendi açık isteği
-olmadan BAŞLATILMAYACAK.**
+**Sprint 4A.2 düzeltmesi (2026-07-16, aynı PR #1):** Sprint 4A.1'in KENDİ
+`localized_hyperbola` sentetik senaryosunun pratikte düz bir olay olduğu
+bulundu ve düzeltildi (gerçek eğrilik + mask-tabanlı apex/arm retention +
+yeni `PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`); karar katmanına **A0**
+("hiç background removal yapmama") sabit-değerli bir referans politikası
+olarak eklendi — nihai karar tablosunda, metrics summary panelinde ve
+`candidate_metrics.csv`'de. Bkz.
+[[02_SPRINTS/Sprint_04A_Background_Removal]] "Sprint 4A.2" bölümü.
 
-Detay: [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
-`outputs/sprint03/canonical_D2_B1/CANONICAL_PROCESSING_NOTE.md`,
-`outputs/sprint03_1/DECISION_PANEL_D2_B1_B2.png`,
-`outputs/sprint03_1/BANDPASS_FINAL_DECISION_REQUIRED.md`,
-`outputs/sprint03_1/D2_DEWOW_DECISION.md`,
-[[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]],
-[[02_SPRINTS/Sprint_03_Dewow_Bandpass]].
+**Human decision (2026-07-16): canonical background-removal policy = A0
+(no_background_removal).** A1-A8'den hiçbiri canonical seçilmedi;
+canonical Sprint 3 (D2+B1) çıktısına background removal uygulanmayacak;
+canonical işlem zinciri değişmeden kalıyor; yeni bir canonical NPZ
+üretilmedi; A0 için `ProcessingResult`/`removed_component`/NPZ
+üretilmedi; A1-A8 repository'de deneysel/opt-in araçlar olarak kaldı
+(silinmedi). Karar gerekçesi, tüm sayısal kanıt ve alternatiflerin
+değerlendirmesi:
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 bu kararla **kapatıldı**.
+
+Bu kararın kendisi, tek başına, bir sonraki sprinti (Gain veya başka bir
+işlem) BAŞLATMAZ — bu proje hiçbir sprintte kendi kendine bir sonraki
+sprinte geçmez. **Sprint 4B (Gain veya başka bir kapsam) henüz
+TANIMLANMADI ve kullanıcının kendi açık isteği olmadan
+BAŞLATILMAYACAK.**
+
+Detay: [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+`outputs/sprint04a/BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`,
+`outputs/sprint04a/BACKGROUND_REMOVED_COMPARISON_CH00_CH05_CH10.png`,
+`outputs/sprint04a/BACKGROUND_METRICS_SUMMARY.png`,
+`outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md`,
+`outputs/sprint04a/background_candidates/comparison/
+PAIRED_CONTROL_HYPERBOLA_VALIDATION.png`,
+`outputs/sprint04a/background_candidates/comparison/
+paired_control_target_attenuation.csv`,
+`outputs/sprint04a/background_candidates/comparison/candidate_metrics.csv`
+(A0 satırı dahil),
+`outputs/sprint04a/background_candidates/comparison/BACKGROUND_REVIEW_REQUIRED.md`,
+[[02_SPRINTS/Sprint_04A_Background_Removal]]. `BACKGROUND_DECISION_
+PANEL.png`/`_DETAIL.png` tarihsel uyumluluk için korunuyor ama asıl karar
+dosyaları DEĞİL.
+
+Canonical processing chain (`Swath003_Array02.ogpr`, değişmedi):
+`time_zero_correction → dc_offset_correction → dewow_correction (D2) →
+bandpass_correction (B1)`. Background removal: **disabled / not
+applied**.
 
 ---
 
-## Sprint 4 için olası kapsam (yalnızca bir taslak — henüz onaylanmadı)
+## Sprint 4B için olası kapsam (yalnızca bir taslak — henüz onaylanmadı)
 
-Dewow ve band-pass adayları artık seçildiğine göre (D2 + B1, bkz. ADR-007),
-olası bir Sprint 4 şu adımlardan birini/birkaçını kapsayabilir
-(kesinleşmiş DEĞİL, yalnızca [[05_PROCESSING/Processing_Order]]'daki
-planlanan sırayı yansıtan bir taslak): background removal, gain, (isteğe
-bağlı ve varsayılan KAPALI) F-K filtering — canonical `outputs/sprint03/
-canonical_D2_B1/sprint03_processed.npz` girdisi üzerinde. Bu liste bir
-taahhüt değildir; Sprint 4'ün kesin kapsamı yalnızca kullanıcının açık
-isteğiyle netleşecektir.
+Background-removal kararı artık kapandığına göre (canonical policy = A0,
+bkz. Sprint 4A yukarıda), olası bir Sprint 4B şu adımlardan birini/
+birkaçını kapsayabilir (kesinleşmiş DEĞİL, yalnızca
+[[05_PROCESSING/Processing_Order]]'daki planlanan sırayı yansıtan bir
+taslak): Gain — canonical Sprint 3 (D2+B1, background-removal-siz) çıktı
+üzerinde. Bu liste bir taahhüt değildir; Sprint 4B'nin kesin kapsamı
+yalnızca kullanıcının açık isteğiyle netleşecektir.
 
 ## Kesinlikle yapılmayacaklar (bir sonraki adım için)
-- Yeni bir dewow veya band-pass adayını OTOMATİK olarak canonical
-  seçmek (D2/B1'in kendisi de kullanıcının insan kararıydı, kodun
-  otomatik seçimi değil).
-- Kullanıcının kendi açık isteği olmadan Sprint 4'ü başlatmak.
-- D2/B1'in `Swath003_Array02.ogpr` dışındaki bir veri setine otomatik
-  olarak (kendi aday karşılaştırması/insan incelemesi olmadan)
-  uygulanması.
-- Header'ın 600 MHz nominal frekansını tek başına bir band-pass aralığı
-  seçim kriteri olarak kullanmak (bkz.
-  `outputs/sprint03/spectrum/SPECTRUM_INTERPRETATION_NOTES.md`).
-- B2'nin geç-zaman penceresindeki ham medyan-iz gecikmesini (40 örnek,
-  bkz. `outputs/sprint03_1/PHASE_METRICS_INTERPRETATION_NOTES.md`) gerçek
-  bir faz kayması olarak yorumlamak.
+- A0 kararını (veya A1-A8'den herhangi birini) daha sonra sessizce
+  değiştirmek — bu karar yalnızca kullanıcının kendi yeni, açık isteğiyle
+  değişebilir (bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]).
+- Kullanıcının kendi açık isteği olmadan bir sonraki sprinti (Gain veya
+  başka bir kapsam) başlatmak.
+- "Canonical policy = A0" kararını Gain'i otomatik olarak başlatma
+  gerekçesi olarak kullanmak.
+- D2/B1'in veya herhangi bir background-removal adayının
+  `Swath003_Array02.ogpr` dışındaki bir veri setine otomatik olarak
+  (kendi aday karşılaştırması/insan incelemesi olmadan) uygulanması.
+- Bu veri setindeki tüm 8 adayın removed component'inin yüksek mekânsal
+  koherans göstermesini (0.83-1.0) otomatik olarak "bu veri setinde
+  gerçek uzun bir yansıma yok" şeklinde yorumlamak — bu yalnızca bir risk
+  göstergesidir, bir sonuç değildir (bkz.
+  [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
+- `overall_rms_retention_tendency`'nin yüksek olmasını arkeolojik-hedef
+  koruması ile eşdeğer saymak — Sprint 4A.1'in paired-control deneyi bu
+  veri setinde tam tersini gösterdi (A1/A2 yüksek RMS retention ama
+  paired-control uzun-hedef retention ≈ 0).
+- A1-A8'i (artık deneysel/opt-in araçlar) repository'den silmek — bu
+  karar onları kaldırmıyor, sadece canonical seçmiyor.
 - Herhangi bir anomali/arkeolojik yorum yapmak.
 
 ## İlgili notlar
-[[02_SPRINTS/Sprint_Index]], [[02_SPRINTS/Sprint_03_Dewow_Bandpass]],
+[[02_SPRINTS/Sprint_Index]], [[02_SPRINTS/Sprint_04A_Background_Removal]],
+[[02_SPRINTS/Sprint_03_Dewow_Bandpass]],
 [[02_SPRINTS/Sprint_03_1_Dewow_Bandpass_Decision_QC]],
 [[01_PROJECT_STATE/04_Risks_and_Limitations]],
-[[01_PROJECT_STATE/03_Open_Issues]], [[05_PROCESSING/Dewow]],
-[[05_PROCESSING/Bandpass_Filter]], [[05_PROCESSING/Processing_Order]],
-[[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]],
-[[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]],
-[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
+[[01_PROJECT_STATE/03_Open_Issues]], [[05_PROCESSING/Background_Removal]],
+[[05_PROCESSING/Gain]], [[05_PROCESSING/Processing_Order]],
+[[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]

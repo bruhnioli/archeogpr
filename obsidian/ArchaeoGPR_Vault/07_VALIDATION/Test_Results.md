@@ -8,6 +8,293 @@ tags: [validation]
 Gerçek `pytest` terminal çıktıları, tarih sırasıyla (en yeni en üstte).
 Başarısız testler gizlenmez — şu ana kadar başarısız test kaydı yoktur.
 
+## 2026-07-16 (Sprint 4A Closure — Human Decision: Canonical Policy = A0, PR #1)
+
+Command:
+```bash
+pytest -v
+```
+
+Result:
+```text
+344 passed in 173.22s (0:02:53)
+```
+
+342 önceki test hiç bozulmadı; 2 yeni kapanış testi eklendi ve geçti:
+`tests/test_sprint4a_candidates.py::test_adr_009_records_the_a0_canonical_
+decision` (ADR-009 dosyasının var olduğu ve "Canonical background-removal
+policy: A0", "no_background_removal", "None of A1-A8 is selected
+canonical.", "No new canonical NPZ is produced", "Gain has not started"
+ifadelerini içerdiği doğrulandı), `tests/test_sprint4a_real_integration.
+py::test_sprint4a_closure_canonical_chain_has_no_background_removal`
+(canonical Sprint 3 NPZ'sinin gerçek `processing_history`'sinin tam olarak
+`[time_zero_correction, dc_offset_correction, dewow_correction,
+bandpass_correction]` olduğu, `background_removal` İÇERMEDİĞİ gerçek
+dosyada doğrulandı). Ayrıca mevcut `test_run_all_sprint4a_candidates_
+on_real_data` testine A0'ın gerçek bir çalıştırmada `candidate_metrics.csv`'nin
+ilk satırı olduğu ve hiçbir NPZ/klasör adının "A0" içermediği
+assertion'ları eklendi (yeni bir test fonksiyonu değil, mevcut testin
+genişletilmesi).
+
+### Diğer kalite kontrolleri (Sprint 4A Closure, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 66 dosya (temiz). `ruff check .`: `All checks passed!`.
+`mypy src/archaeogpr`: `Success: no issues found in 39 source files`.
+
+```bash
+python scripts/validate_obsidian_vault.py obsidian/ArchaeoGPR_Vault
+```
+`Markdown notes found: 71`, `Broken wikilinks: 0`, `Ambiguous wikilinks: 0`,
+`Orphan notes: 0`, `Result: PASS` (ADR-009 dahil).
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A Closure)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı (timing-metriği yeniden adlandırma sonrası) — girdi hash'i
+(`2044dd8f...82fd026`), ham dosya hash'i (`66d840c3...b62a6`), Sprint 2
+canonical hash'i (`b2770b5c...af5afe`) hepsi ÖNCEKİ çalıştırmayla
+bit-bazında özdeş. `candidate_metrics.csv`'de kolon `median_trace_cross_
+correlation_lag_w5` → `median_trace_cross_correlation_lag_proxy_w5`
+olarak yeniden adlandırıldığı doğrulandı; `BACKGROUND_FINAL_DECISION_
+REQUIRED.md`'nin "How to read this table" bölümünde yeni bir "Timing
+preservation" açıklaması bulunduğu doğrulandı. Tam detay:
+[[QC_Output_Validation]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+
+## 2026-07-16 (Sprint 4A.2 — Hyperbola QC Fix and No-Background Baseline, PR #1)
+
+Command:
+```bash
+pytest
+```
+
+Result:
+```text
+tests\test_data_model.py .....................                           [ 30%]
+tests\test_dc_offset.py ...............................                  [ 39%]
+tests\test_dewow.py ....................                                 [ 45%]
+tests\test_export_processed.py ....                                      [ 46%]
+tests\test_ogpr_reader.py .............                                  [ 50%]
+tests\test_processing_history.py .....                                   [ 51%]
+tests\test_real_ogpr_integration.py ..                                   [ 52%]
+tests\test_spectrum.py ........................                          [ 59%]
+tests\test_sprint2_real_integration.py ..                                [ 59%]
+tests\test_sprint3_1_decision_qc.py .......................              [ 66%]
+tests\test_sprint3_canonical.py ...............                          [ 71%]
+tests\test_sprint3_pipeline.py .....................                     [ 77%]
+tests\test_sprint3_real_integration.py .                                 [ 77%]
+tests\test_sprint4a_candidates.py ...........................            [ 85%]
+tests\test_sprint4a_pipeline.py ...                                      [ 86%]
+tests\test_sprint4a_real_integration.py ..                               [ 86%]
+tests\test_target_invariance.py .....                                    [ 88%]
+tests\test_time_zero.py ........................................         [100%]
+
+342 passed in 175.30s (0:02:55)
+```
+
+328 önceki test hiç bozulmadı (2'si -- `test_run_all_sprint4a_candidates_
+synthetic_end_to_end`, `test_run_all_sprint4a_candidates_on_real_data` --
+Sprint 4A.2'nin tam gerekli disclaimer metnine, `Gain has not started.`,
+güncellendi; bu bir davranış değişikliği DEĞİL, Sprint 4A.1'in kendi eski
+`Gain has not been started.` ifadesinin yerini alması); `tests/
+test_sprint4a_candidates.py`'ye 16 yeni test eklendi: hiperbol geometrisi
+(≥3 farklı merkez sample, ≥3 örnek apex-kol farkı, apex=en sığ sample),
+sınır-aşımı `ValueError` (sessiz kırpma yok), `target_mask`'in `target_
+before`'un sıfır-olmayan desteğiyle tam örtüştüğü, full-target metriğin
+artık sabit bir apex-penceresinden hesaplanmadığı, apex/arm retention'ın
+ayrı ve genellikle farklı sayılar olduğu, dikdörtgen hedeflerin AYNI
+mask-tabanlı altyapıyı kullandığı, A0'ın sabit değerleri
+(retention=1, suppression=0), A0'ın nihai karar tablosunda ilk satır
+olarak bulunduğu, A0'ın hiçbir NPZ/candidates_info girdisi/B-scan paneli
+üretmediği, A0'ın metrics summary panelinde 7/8 panelde göründüğü ama
+`removed_coherent_event_risk_proxy`'de görünmediği, hiçbir adayın (A0
+dahil) canonical seçilmediği, `archaeogpr.processing.gain` modülünün
+var olmadığı, "preservation-favoring" adayların A0'a karşı açıkça
+karşılaştırıldığı.
+
+### Diğer kalite kontrolleri (Sprint 4A.2, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 2 dosya yeniden biçimlendirildi (yalnızca stil —
+`sprint4a_candidates.py`, `test_sprint4a_candidates.py`). `ruff check .`:
+`All checks passed!`. `mypy src/archaeogpr`: ilk çalıştırmada 4 hata
+(`_save_paired_control_hyperbola_validation_panel()`'da tip-belirsiz bir
+`dict[str, int]`'in `remove_background()`'a `**kwargs` ile geçirilmesi);
+`window_kwargs: dict[str, Any]` açık tip belirtimi eklenerek düzeltildi.
+Sonraki çalıştırma: `Success: no issues found in 39 source files`.
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A.2)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı — girdi hash'i (`2044dd8f...82fd026`), ham dosya hash'i
+(`66d840c3...b62a6`), Sprint 2 canonical hash'i (`b2770b5c...af5afe`)
+hepsi ÖNCEKİ Sprint 4A.1 çalıştırmasıyla bit-bazında özdeş. Yeni
+`PAIRED_CONTROL_HYPERBOLA_VALIDATION.png` programatik + görsel olarak
+denetlendi (15 hedef trace, 7 benzersiz merkez sample, 12 örnek maksimum
+kayma, apex sample=100). `candidate_metrics.csv`'de A0 satırı ilk satır
+olarak doğrulandı (`background_suppression=0`, `overall_rms_retention_
+tendency=1`, `paired_control_short/long_target_retention=1`).
+`BACKGROUND_METRICS_SUMMARY.png` A0'ı 7/8 panelde gri referans çubuğu
+olarak gösteriyor, `removed_coherent_event_risk_proxy` panelinde
+göstermiyor. `BACKGROUND_FINAL_DECISION_REQUIRED.md` A0 satırını ve 7
+gerekli disclaimer satırının tümünü içeriyor. Tam detay:
+[[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
+## 2026-07-16 (Sprint 4A.1 — Background Decision QC Correction, PR #1)
+
+Command:
+```bash
+pytest -q
+```
+
+Result:
+```text
+........................................................................ [ 21%]
+........................................................................ [ 43%]
+........................................................................ [ 65%]
+........................................................................ [ 87%]
+........................................                                 [100%]
+328 passed in 317.56s (0:05:17)
+```
+
+314 önceki test hiç bozulmadı; 14 yeni Sprint 4A.1 testi eklendi ve geçti:
+`tests/test_background.py` (+1:
+`test_nominal_length_and_center_to_center_span_are_distinct_and_correct`
+— 13 trace/0.04m spacing örneğinde nominal=0.52m, span=0.48m,
+half-span=0.24m tam olarak doğrulandı), yeni `tests/
+test_sprint4a_candidates.py` (13: ortak-scale output/removed montaj
+testleri — `Figure.savefig` spy'ı ile bir aday 50x/1000x ölçeklendiğinde
+bile tüm panellerin AYNI `(vmin,vmax)` paylaştığı doğrulandı; channel
+0/5/10 gerçekten üretiliyor; paired-control izolasyon testleri —
+`target_amplitude=0` ile `with_target==control` tam olarak, retention
+metrikleri nan'a guard'lanıyor (crash yok); background+noise hedef
+dışında tam olarak sıfıra iptal oluyor; uzun hedef aynı pencerede kısa
+hedeften daha fazla attenuate oluyor (hem mean hem median); lokalize
+hiperbol-benzeri hedef uzun-yatay hedeften daha iyi korunuyor; mean ve
+median paired-control sonuçları ayrışabiliyor; nihai rapor testleri —
+`1 - coherence` hiçbir zaman "preservation" olarak raporlanmıyor, ham
+coherence değeri doğru raporlanıyor, hiçbir aday canonical seçilmiyor,
+"Gain has not been started" her zaman mevcut; interpretation-notes
+testi — `overall_rms_retention_tendency` her zaman belirtiliyor,
+`CONFLICT` bayrağı yalnızca gerçekten çelişen adaylarda (A1/A2) tetikleniyor).
+
+### Diğer kalite kontrolleri (Sprint 4A.1, 2026-07-16)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 66 dosya (temiz, 2 dosya bir kez yeniden biçimlendirildi
+— yalnızca stil). `ruff check .`: `All checks passed!`. `mypy
+src/archaeogpr`: `Success: no issues found in 39 source files`.
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A.1)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` yeniden
+çalıştırıldı — girdi hash'i (`2044dd8f...82fd026`), ham dosya hash'i
+(`66d840c3...b62a6`), Sprint 2 canonical hash'i (`b2770b5c...af5afe`)
+hepsi ÖNCEKİ Sprint 4A çalıştırmasıyla bit-bazında özdeş (deterministik
+yeniden hesaplama). Yeni dosyalar programatik olarak denetlendi:
+`BACKGROUND_OUTPUT_COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_REMOVED_
+COMPARISON_CH00_CH05_CH10.png`, `BACKGROUND_METRICS_SUMMARY.png` (tüm
+finite piksel), `paired_control_target_attenuation.csv` (12 satır, 11
+kolon), `candidate_metrics.csv` (8 yeni kolon dahil doğrulandı). 3 eski
+dosya adı (`channelNN_all_candidates_20_100ns.png`, yeniden adlandırılan
+öncesi) stale olarak temizlendi. Tam detay: [[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
+## 2026-07-15 (Sprint 4A — Background Removal Candidate Development & Geophysical QC)
+
+Command:
+```bash
+pytest -q
+```
+
+Result:
+```text
+........................................................................ [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 68%]
+........................................................................ [ 91%]
+..........................                                               [100%]
+314 passed in 151.64s (0:02:31)
+```
+
+254 önceki test hiç bozulmadı; 60 yeni Sprint 4A testi eklendi ve geçti:
+`tests/test_background.py` (44: `remove_background()` core algoritma —
+global_mean/global_median/sliding_mean/sliding_median her biri sabit
+iz→tam sıfır, girdi=çıktı+çıkarılan, kanal-bazlı bağımsızlık; pencere/
+geometri — metre→trace dönüşümü çift→tek yuvarlama+uyarı,
+`window_traces`/`window_m` ikisi birden hatası, minimum/maksimum pencere
+hataları, trace-spacing önceliği (geolocation→metadata→unavailable);
+edge/mask — `reflect`/`nearest` sentetik kenar-olay testleri, padding
+hariç/değişmeden, valid_mask bağımsız kopya; processing-history/export —
+tekrar-işleme guard'ı+override, NPZ round-trip; synthetic bilimsel-risk
+testleri — window-length vs target-length attenuation (kısa hedef
+korunuyor, geniş hedef merkezde neredeyse tamamen yok oluyor — ilk
+taslakta ters bir varsayım düzeltildi), global vs sliding uzun-olay
+testi, mean vs median outlier testi), `tests/test_background_qc.py`
+(11: sinyal-koruma metrikleri her zaman penceresini kapsıyor, RMS
+retention dominant background çıkarıldığında <1.0, removed-component
+metrikleri band-energy entegrasyonu dahil doğru yapıda, removed-component
+coherence paylaşılan background için yüksek (>0.9), localized-event-risk
+düz background'da düşük/eğri-lokal olayda yüksek, degenerate şekiller
+finite değil, QC plotting suite tüm dosyaları üretiyor, hiçbir metrik
+"canonical" anahtarı içermiyor), `tests/test_sprint4a_pipeline.py` (3:
+sentetik uçtan-uca zincir time-zero→...→background removal, NPZ
+round-trip'lerle her aşamada; `run_all_sprint4a_candidates()` sentetik
+uçtan-uca — tüm 8 aday üretiliyor/hiçbiri canonical değil; gerçek
+`window_m`/`window_traces` orkestrasyon hatası bu testte bulundu ve
+düzeltildi), `tests/test_sprint4a_real_integration.py` (2, gerçek dosya
+varsa çalışır: canonical Sprint 3 NPZ'si üzerinde background removal —
+shape/dtype/finiteness/zaman ekseni/valid_mask/padding korunumu,
+input=output+removed_component float32 hassasiyetinde, girdi mutasyona
+uğramıyor; 8-aday orkestrasyonu gerçek veride — tüm hash'ler değişmedi,
+ölçülebilir farklar var, hiçbir aday canonical).
+
+Kod incelemesi sırasında spec bölüm 15/16/20'nin literal gereksinimleriyle
+karşılaştırmalı bir denetim yapıldı ve üç boşluk bulundu/düzeltildi
+(`removed_input_absolute_energy_ratio`, spatial concentration,
+median-trace correlation, local-event amplitude retention, channel
+consistency before/after, ve `BACKGROUND_FINAL_DECISION_REQUIRED.md`'nin
+3 eksik kolonu) — düzeltme sonrası tüm 16 Sprint 4A testi ve tam 314 test
+takımı yeniden çalıştırıldı, hepsi geçti. Detay:
+[[02_SPRINTS/Sprint_04A_Background_Removal]] Issues Discovered.
+
+### Diğer kalite kontrolleri (Sprint 4A, 2026-07-15)
+
+```bash
+ruff format . && ruff check . && mypy src/archaeogpr
+```
+`ruff format .`: 65 dosya (temiz, `test_sprint4a_pipeline.py` bir kez
+yeniden biçimlendirildi — yalnızca stil). `ruff check .`: `All checks
+passed!`. `mypy src/archaeogpr`: `Success: no issues found in 39 source
+files` (spec-tamlık düzeltmesi sonrası dahil).
+
+### Gerçek dosya CLI doğrulaması (Sprint 4A)
+
+`python -m archaeogpr sprint4a-candidates outputs/sprint03/canonical_D2_B1/
+sprint03_processed.npz --output-dir outputs/sprint04a` → girdi hash'i
+`2044dd8f...82fd026`, işleme geçmişi `[time_zero_correction,
+dc_offset_correction, dewow_correction, bandpass_correction]`, 8 aday
+[A1..A8] çalıştırıldı, mühendislik kategorileri (A1/A2=preservation-
+favoring, A3/A6=suppression-favoring, A4/A5/A7/A8=balanced), ham dosya
+hash'i ve Sprint 2 canonical NPZ hash'i her ikisi de değişmedi, `Input
+file hash unchanged: True`, `Canonical selected: false`, `Gain started:
+false`. Programatik denetim: 8/8 aday NPZ'si geçerli (shape/dtype/NaN-Inf/
+işleme geçmişi/padding), tüm JSON/CSV parse edilebilir, tüm PNG'ler finite
+piksellerle açılabiliyor, hiçbir dosyada `"canonical": true` yok. Tam
+detay: [[QC_Output_Validation]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]].
+
 ## 2026-07-15 (Sprint 3 Canonicalization — D2 + B1 Selection)
 
 Command:

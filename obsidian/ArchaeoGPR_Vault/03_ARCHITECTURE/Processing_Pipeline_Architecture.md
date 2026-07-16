@@ -7,15 +7,19 @@ type: architecture
 ## Amaç
 
 Bu not, sinyal işleme hattının mimari sözleşmesini (contract) tanımlar.
-Sprint 2-3 itibarıyla bu sözleşme dört modül için (time-zero, DC offset,
-dewow, band-pass) gerçek kodla karşılanmıştır; kalan altı planlanan modül
-için hâlâ yalnızca bu sözleşmenin kendisi geçerlidir, gerçek kod yoktur.
+Sprint 2-4A itibarıyla bu sözleşme beş modül için (time-zero, DC offset,
+dewow, band-pass, background removal) gerçek kodla karşılanmıştır; kalan
+beş planlanan modül için hâlâ yalnızca bu sözleşmenin kendisi geçerlidir,
+gerçek kod yoktur.
 
-> **Güncel durum (Sprint 3):** `time-zero correction`, `DC offset`,
-> `dewow`, `bandpass` — dördü de implemente edildi (bkz.
-> [[05_PROCESSING/Processing_Index]]). `background removal, gain, AGC,
-> F-K filtering, migration, Hilbert envelope, depth slices` için hâlâ ne
-> gerçek ne de placeholder/sahte-çalışan bir implementasyon yoktur.
+> **Güncel durum (Sprint 4A):** `time-zero correction`, `DC offset`,
+> `dewow`, `bandpass`, `background removal` — beşi de implemente edildi
+> (bkz. [[05_PROCESSING/Processing_Index]]). Background removal, 8 aday
+> olarak implemente edildi — **hiçbiri canonical değil** (bkz.
+> [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]]).
+> `gain, AGC, F-K filtering, migration, Hilbert envelope, depth slices`
+> için hâlâ ne gerçek ne de placeholder/sahte-çalışan bir implementasyon
+> yoktur.
 
 ## Planlanan Sözleşme: `GPRDataset -> GPRDataset`
 

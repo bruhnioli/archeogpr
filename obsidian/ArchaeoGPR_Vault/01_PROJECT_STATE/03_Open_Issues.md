@@ -302,3 +302,46 @@ Kod hataları için [[07_VALIDATION/Test_Results]] ve `pytest` çıktısına bak
   Bu proje bu seçimi otomatik yapmaz.
 - Owner: Resolved by Sprint 3 canonicalization (2026-07-15) — kullanıcı
   kararı B1.
+
+## ISSUE-012 — Background-removal adayı (A1-A8 arasından) henüz seçilmedi
+
+- Status: **Resolved** (2026-07-16, Sprint 4A Closure) — kullanıcı, insan/
+  jeofizik nihai kararı olarak **A0**'ı (`no_background_removal`)
+  canonical POLİTİKA seçti: A1-A8'den hiçbiri canonical seçilmedi,
+  canonical Sprint 3 (D2+B1) çıktısına background removal
+  uygulanmayacak, canonical zincir değişmeden kaldı, Gain başlatılmadı.
+  A1-A8 repository'de deneysel/opt-in araçlar olarak kalıyor. Karar
+  gerekçesi, tüm sayısal kanıt ve değerlendirilen alternatifler: bkz.
+  [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]. Bu
+  seçim yalnızca `Swath003_Array02.ogpr` için geçerlidir; başka bir veri
+  seti kendi aday karşılaştırmasını ve kendi insan/jeofizik incelemesini
+  gerektirir. Aşağıdaki orijinal analiz (Sprint 4A'dan, değiştirilmedi)
+  hâlâ geçerli bir arka plan bilgisidir.
+- Severity: Medium (nihai işlenmiş veri kalitesini etkiler)
+- Category: Background removal / parameter selection
+- Detected in: Sprint 4A, background-removal aday karşılaştırması
+- Description: 8 background-removal adayı (A1: global_mean, A2:
+  global_median, A3-A5: sliding_mean 0.5/1.0/1.5 m, A6-A8: sliding_median
+  aynı pencereler) canonical Sprint 3 çıktısı (D2+B1) üzerinde çalıştırıldı
+  ve karşılaştırıldı. Global yöntemler (A1/A2) gerçek uzun/yatay bir
+  yansımayı, tüm profil üzerinden hesaplanan bir background'a karışıp
+  bastırma riskini maksimum taşır; sliding yöntemler pencereden daha
+  geniş bir olayı kendi merkezinde neredeyse tamamen yok eder (sentetik
+  olarak doğrulandı). Bu veri setinde tüm 8 adayın removed component'i
+  yüksek mekânsal koherans gösteriyor (adjacent-trace correlation
+  0.83-1.0, W5) — bu, YÖNTEMDEN BAĞIMSIZ olarak gerçek bir uzun yansımayı
+  bastırma riskinin var olduğunu gösteren bir QC sinyalidir, "bu veri
+  setinde gerçek bir hedef yok" anlamına gelmez.
+- Evidence: `outputs/sprint04a/background_candidates/comparison/
+  candidate_metrics.csv`,
+  `outputs/sprint04a/BACKGROUND_FINAL_DECISION_REQUIRED.md`.
+- Impact: Bir sonraki sprintin (Gain veya başka bir kapsam, henüz
+  tanımlanmadı) hangi background-removal çıktısı üzerinde çalışacağı
+  (veya hiç background-removal uygulanmamış bir girdi üzerinde
+  çalışacağı) bu seçime bağlıdır.
+- Proposed next action (tarihsel, çözülmeden önce): Jeofizik ekibiyle
+  `BACKGROUND_DECISION_PANEL.png`, `BACKGROUND_DECISION_PANEL_DETAIL.png`
+  ve her adayın kendi removed-component B-scan'lerini inceleyip bir aday
+  seçmek (veya hiçbirini seçmeyip başka bir yaklaşım istemek). Bu proje
+  bu seçimi otomatik yapmaz.
+- Owner: Resolved by Sprint 4A Closure (2026-07-16) — kullanıcı kararı A0.

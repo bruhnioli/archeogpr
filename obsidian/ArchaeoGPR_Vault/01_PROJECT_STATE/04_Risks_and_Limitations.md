@@ -5,7 +5,7 @@ tags: [project-state, risk]
 
 # Risks and Limitations
 
-Bu liste, projenin şu anki (Sprint 3 sonu, review_required) durumunda
+Bu liste, projenin şu anki (Sprint 4A sonu, review_required) durumunda
 bilinen risk ve sınırlamaları kaydeder. Kod bu risklerin hiçbirini sessizce
 çözmez veya gizlemez — her biri metadata/uyarılarda veya belgelerde açıkça
 yüzeye çıkarılır.
@@ -47,12 +47,26 @@ Bkz. `CLAUDE.md`: "Do not automatically interpret anomalies as
 archaeological objects."
 
 ## 6. Background ve F-K filtrelerinin gerçek hedefleri bastırabilmesi
-(Henüz uygulanmadı.) Background removal, tüm slice'lar için ortalama bir
-iz çıkararak yatay bantları temizler; düz/yatay gerçek arkeolojik hedefler
-de bu ortalamaya karışıp bastırılabilir. F-K filtering, dipli gürültüyü
-frekans-dalga sayısı düzleminde temizler; dipli gerçek yansımalar da
-kaybedilebilir. Bu yüzden F-K hiçbir zaman varsayılan olarak açık
-olmamalıdır. Bkz. [[05_PROCESSING/Background_Removal]], [[05_PROCESSING/FK_Filter]].
+**(Sprint 4A'da background removal implemente edildi — bu, projenin şu
+ana kadarki en bilimsel açıdan riskli filtresidir.)** Background removal
+(global veya sliding, mean veya median), bir kanalın trace ekseni
+boyunca ortak/yavaş-değişen bir bileşeni çıkarır; düz/yatay gerçek
+arkeolojik hedefler (bir taban, bir duvar temeli, bir katman sınırı) bu
+bileşenden AYIRT EDİLEMEZ ve aynı etkinlikte bastırılabilir. Bu veri
+setinde, tüm 8 background-removal adayının removed component'i yüksek
+mekânsal koherans gösteriyor (0.83-1.0) — bu, yöntemden bağımsız olarak
+gerçek bir riskin var olduğunu gösteren bir QC sinyalidir. **İnsan/
+jeofizik nihai kararı (2026-07-16): canonical policy = A0 — background
+removal canonical zincire dahil edilmedi, tam olarak bu risk yüzünden
+(preservation-first politika).** A1-A8 repository'de deneysel/opt-in
+araçlar olarak kalıyor. Bkz.
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
+F-K filtering (henüz uygulanmadı), dipli gürültüyü frekans-dalga sayısı
+düzleminde temizler; dipli gerçek yansımalar da kaybedilebilir. Bu yüzden
+F-K hiçbir zaman varsayılan olarak açık olmamalıdır. Bkz.
+[[05_PROCESSING/Background_Removal]], [[05_PROCESSING/FK_Filter]].
 
 ## 7. AGC'nin nicel genlik analizinde kullanılamaması
 (Henüz uygulanmadı.) AGC (Automatic Gain Control) her örneği yerel bir
@@ -138,6 +152,22 @@ Sprint 3'ün her iki yeni işlemi için de önler. Bkz.
 [[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]],
 [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]].
 
+## 16. Background-removal canonical politikası: A0 (uygulanmadı)
+(Sprint 4A'da üretildi, Sprint 4A Closure'da karar verildi —
+2026-07-16.) 8 background-removal adayı (2 global + 6 sliding, D2+B1
+canonical zinciri üzerinde) gerçek veride çalıştırıldı ve karşılaştırıldı;
+kodun kendisi hiçbirini diğerine karşı "doğru" olarak seçmedi. Global
+yöntemler (A1/A2) en riskli olanlardır (tüm profil üzerinden hesaplanan
+bir background); sliding yöntemler penceredan daha geniş bir olayı kendi
+merkezinde neredeyse tamamen yok eder (sentetik olarak doğrulandı,
+`window_length_vs_target_attenuation.png`). **İnsan/jeofizik nihai
+kararı: canonical policy = A0** (background removal uygulanmadı) —
+preservation-first politika, geri dönüşü olmayan bir işlemin gerçek uzun/
+yatay bir arkeolojik olayı bastırma riskini kabul etmemek. Bkz.
+[[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı),
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
+[[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
+
 ## İlgili notlar
 [[01_PROJECT_STATE/03_Open_Issues]], [[07_VALIDATION/Known_Uncertainties]],
 [[05_PROCESSING/Processing_Order]], [[06_DECISIONS/ADR_002_TimeZero_Reference_and_Shift_Policy]],
@@ -145,6 +175,7 @@ Sprint 3'ün her iki yeni işlemi için de önler. Bkz.
 [[06_DECISIONS/ADR_004_TimeZero_Relative_Axis_and_DC_Window]],
 [[06_DECISIONS/ADR_005_Dewow_Window_and_Edge_Policy]],
 [[06_DECISIONS/ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]],
+[[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
 [[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]],
-[[02_SPRINTS/Sprint_03_Dewow_Bandpass]]
+[[02_SPRINTS/Sprint_03_Dewow_Bandpass]], [[02_SPRINTS/Sprint_04A_Background_Removal]]

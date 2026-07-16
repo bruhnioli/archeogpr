@@ -14,6 +14,8 @@ tags: [decision]
 | ADR-005 | [[ADR_005_Dewow_Window_and_Edge_Policy]] | accepted |
 | ADR-006 | [[ADR_006_ZeroPhase_Bandpass_and_Masked_Segments]] | accepted |
 | ADR-007 | [[ADR_007_Canonical_D2_B1_Selection]] | accepted |
+| ADR-008 | [[ADR_008_Background_Removal_Channelwise_and_Window_Policy]] | accepted |
+| ADR-009 | [[ADR_009_Canonical_No_Background_Removal_Policy]] | accepted |
 
 Yeni bir önemli mimari karar alındığında yeni bir ADR oluşturun (eskisini
 sessizce değiştirmeyin — karar değişirse eski ADR'yi `superseded` olarak
