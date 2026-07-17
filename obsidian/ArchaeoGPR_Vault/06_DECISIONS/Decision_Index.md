@@ -17,6 +17,8 @@ tags: [decision]
 | ADR-008 | [[ADR_008_Background_Removal_Channelwise_and_Window_Policy]] | accepted |
 | ADR-009 | [[ADR_009_Canonical_No_Background_Removal_Policy]] | accepted |
 | ADR-011 | [[ADR_011_GUI_Technology_Decision]] | accepted |
+| ADR-012 | [[ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] | accepted |
+| ADR-013 | [[ADR_013_Display_Policy_and_Non_Destructive_Visualization]] | accepted |
 
 ADR-010 numarası bu index'te kasıtlı olarak atlanmıştır: `src/archaeogpr/
 sprint4b_candidates.py` (untracked, `sprint-04b-gain-candidates`

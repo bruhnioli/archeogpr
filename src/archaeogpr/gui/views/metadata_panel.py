@@ -14,7 +14,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QApplication,
+    QHeaderView,
+    QMenu,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from archaeogpr.model.dataset import GPRDataset
 from archaeogpr.qc.metadata import derive_metadata
@@ -45,11 +55,19 @@ class MetadataPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._source_path: Path | None = None
+
         self.tree = QTreeWidget()
         self.tree.setColumnCount(2)
         self.tree.setHeaderLabels(["Field", "Value"])
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header = self.tree.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        # Value column stretches with the panel/window -- GUI-1 feedback: long
+        # values (paths, spatial reference, warnings) were being truncated.
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tree.setRootIsDecorated(True)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_context_menu)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -57,6 +75,7 @@ class MetadataPanel(QWidget):
 
     def clear(self) -> None:
         self.tree.clear()
+        self._source_path = None
 
     def _add_group(self, title: str) -> QTreeWidgetItem:
         group = QTreeWidgetItem([title, ""])
@@ -65,10 +84,43 @@ class MetadataPanel(QWidget):
         return group
 
     def _add_row(self, parent: QTreeWidgetItem, field: str, value: Any) -> None:
-        parent.addChild(QTreeWidgetItem([field, _fmt(value)]))
+        text = _fmt(value)
+        item = QTreeWidgetItem([field, text])
+        # Full-text tooltip on both columns so a value truncated by column
+        # width (even with Stretch, a very long path/warning can still
+        # exceed the visible width) is always readable on hover.
+        item.setToolTip(0, field)
+        item.setToolTip(1, text)
+        parent.addChild(item)
+
+    def _show_context_menu(self, position: QPoint) -> None:
+        item = self.tree.itemAt(position)
+        if item is None or item.parent() is None:
+            return  # no row (or a top-level group header) under the cursor
+        menu = QMenu(self.tree)
+
+        def _copy(text: str) -> None:
+            QApplication.clipboard().setText(text)
+
+        field_text, value_text = item.text(0), item.text(1)
+        copy_field = QAction("Copy field", self.tree)
+        copy_field.triggered.connect(lambda: _copy(field_text))
+        copy_value = QAction("Copy value", self.tree)
+        copy_value.triggered.connect(lambda: _copy(value_text))
+        copy_row = QAction("Copy row", self.tree)
+        copy_row.triggered.connect(lambda: _copy(f"{field_text}\t{value_text}"))
+        menu.addAction(copy_field)
+        menu.addAction(copy_value)
+        menu.addAction(copy_row)
+        if self._source_path is not None:
+            copy_path = QAction("Copy source path", self.tree)
+            copy_path.triggered.connect(lambda: _copy(str(self._source_path)))
+            menu.addAction(copy_path)
+        menu.exec(self.tree.viewport().mapToGlobal(position))
 
     def set_dataset(self, dataset: GPRDataset, source_path: Path | None) -> None:
         self.clear()
+        self._source_path = source_path
         metadata = dataset.metadata
         derived = derive_metadata(dataset)
         slices_count, channels_count, samples_count = dataset.shape

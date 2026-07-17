@@ -15,12 +15,15 @@ tags: [sprint]
 | 3.1 | D2 Dewow Confirmation & B1/B2 Band-Pass Decision QC | ✅ done (insan kararı: D2 onaylandı, B1 seçildi) | [[Sprint_03_1_Dewow_Bandpass_Decision_QC]] |
 | 4A | Background Removal Candidate Development, Signal-Preservation Validation & Geophysical QC | ✅ done (insan kararı: canonical policy = A0, background removal uygulanmadı) | [[Sprint_04A_Background_Removal]] |
 | GUI-0 | GUI/3D Dönüşümü: Repository Audit, Mimari Tasarım ve Bağımlılık İskeleti (kod YOK — yalnızca ADR/mimari/risk belgeleri + pyproject metadata) | ✅ done | [[Sprint_GUI_0_Foundation]] |
+| GUI-1 | Native Windows Viewer Shell + Executable (PySide6 uygulama kabuğu, File→Open OGPR, B-scan/A-scan, metadata paneli, `ArchaeoGPR.exe`) | ✅ done | [[Sprint_GUI_1_Viewer_Shell]] |
+| GUI-2 | Display Controls & Interaction (kontrast/percentile/colormap/A-scan modları, metadata okunabilirliği, PNG export, `0.2.0`) — veri işleme YOK | ✅ done | [[Sprint_GUI_2_Display_Controls]] |
 
 Sprint 4B (Gain veya başka bir kapsam) henüz TANIMLANMADI — bkz.
-[[01_PROJECT_STATE/02_Next_Development_Sprint]]. Sprint GUI-0, Sprint 4B
-ile aynı şey DEĞİLDİR ve onu başlatmaz — ayrı, paralel bir track'tir
-(GUI/3D dönüşümü). Bir sonraki GUI kod sprinti (**GUI-1**) yalnızca
-kullanıcının ayrı, açık onayıyla başlar.
+[[01_PROJECT_STATE/02_Next_Development_Sprint]]. GUI-0/1/2 track'i, Sprint
+4B ile aynı şey DEĞİLDİR ve onu başlatmaz — ayrı, paralel bir track'tir
+(GUI/3D dönüşümü). Bir sonraki GUI sprinti (processing entegrasyonu veya
+GUI-1B background worker) yalnızca kullanıcının ayrı, açık onayıyla
+başlar.
 
 Yeni sprint notu oluştururken [[Template_Sprint]] şablonunu kullanın.
 

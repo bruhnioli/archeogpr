@@ -4,7 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archaeogpr"
-version = "0.1.0"
+# Single source of truth for the version: `archaeogpr.__version__` (see
+# src/archaeogpr/__init__.py). `dynamic = ["version"]` + the
+# [tool.setuptools.dynamic] table below reads it at build time so this
+# file can never drift into a second, independently-hardcoded version
+# string -- see ADR-013 for why this matters (GUI-2 bumped 0.1.0 -> 0.2.0
+# and this was the point two literals had silently mismatched before).
+dynamic = ["version"]
 description = "Reader, data model, and signal-processing pipeline for OpenGPR (.ogpr) archaeological GPR data -- time-zero/DC-offset correction, dewow, and band-pass filtering, with a canonical Sprint 3 (D2 dewow + B1 band-pass) processing chain selected by human/geophysical review."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -62,6 +68,9 @@ archaeogpr = "archaeogpr.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "archaeogpr.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

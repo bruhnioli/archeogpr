@@ -5,9 +5,16 @@ type: reference
 # Windows Executable Build
 
 How to build, run, and smoke-test the ArchaeoGPR native Windows desktop
-viewer (Sprint GUI-1). See [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] for the
-sprint record and [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]]
-for why the interpreter choice below is not optional.
+viewer (Sprint GUI-1, display controls added in Sprint GUI-2 — current
+version `0.2.0`). See [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
+[[02_SPRINTS/Sprint_GUI_2_Display_Controls]] for the sprint records and
+[[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] for why
+the interpreter choice below is not optional. The package version is a
+single source of truth (`archaeogpr.__version__` in
+`src/archaeogpr/__init__.py`, read by `pyproject.toml` via
+`dynamic = ["version"]`) -- `python -m archaeogpr.gui --version`,
+`ArchaeoGPR.exe --version`, `pip show archaeogpr`, the startup log entry,
+and every PNG export's `.display.json` sidecar all report the same value.
 
 ## Prerequisites
 
@@ -71,9 +78,13 @@ viewer) but does not attempt deeper Qt-submodule trimming yet — see
 
 ```powershell
 dist\ArchaeoGPR\ArchaeoGPR.exe --smoke-test   # exit 0, no visible window stays open
-dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.1.0"
+dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.2.0"
 dist\ArchaeoGPR\ArchaeoGPR.exe --open data\raw\Swath003_Array02.ogpr --smoke-test
 ```
+
+Without `--smoke-test`, the executable stays open (a normal, interactive
+window) until the user closes it -- `--smoke-test` exists specifically to
+make CI/automated verification possible without a blocking event loop.
 
 All three are logged to `%LOCALAPPDATA%\ArchaeoGPR\logs\archaeogpr.log`
 (`frozen: True` confirms it's the bundled executable, not a dev run).
@@ -82,25 +93,37 @@ All three are logged to `%LOCALAPPDATA%\ArchaeoGPR\logs\archaeogpr.log`
 
 1. Double-click `dist\ArchaeoGPR\ArchaeoGPR.exe`.
 2. **File → Open OGPR...**, pick a `.ogpr` file.
-3. B-scan renders for channel 0; the channel spin box becomes enabled.
+3. B-scan renders for channel 0; the channel/trace controls become enabled.
 4. Change the channel — the B-scan updates.
-5. Click anywhere on the B-scan — the yellow trace marker moves there and
-   the A-scan panel updates to that trace.
-6. Move the mouse over the B-scan — the status bar shows trace/channel/
-   time/amplitude.
-7. Scroll to zoom, drag to pan (pyqtgraph's built-in `ViewBox` behavior —
-   no custom code).
-8. Close the window.
+5. Move the "Clip percentile" slider (90-100%) — the contrast changes;
+   weaker reflections become more visible at a lower percentile.
+6. Switch Gray ↔ Seismic — the colormap changes.
+7. Toggle "Symmetric around zero" off, then try "Manual levels" with a
+   valid and then an invalid (min ≥ max) range — the invalid range is
+   rejected (shown in red) and never applied.
+8. Click anywhere on the B-scan — the yellow trace marker moves there, the
+   trace spin box updates, and the A-scan panel updates to that trace.
+9. Switch the A-scan mode (Full / Robust / Normalize) and observe the
+   difference — the underlying data never changes.
+10. Move the mouse over the B-scan — the status bar's "Cursor" label shows
+    trace/channel/time/amplitude, separate from the "Selected trace" label.
+11. Scroll to zoom, drag to pan (pyqtgraph's built-in `ViewBox` behavior —
+    no custom code), then click **Reset View**.
+12. Right-click a metadata row — copy its field/value/row/source path.
+13. **File → Export Current B-scan PNG...** and check the exported PNG +
+    its `.display.json` sidecar.
+14. Close the window.
 
 The raw `.ogpr` file's SHA-256 must be identical before and after this
 entire flow — the reader only ever opens it `"rb"` (see
 `archaeogpr.io.ogpr_reader`, unchanged by this sprint).
 
-## Known Limitations (Sprint GUI-1)
+## Known Limitations (Sprint GUI-1/GUI-2)
 
 - View-only: no processing (time-zero/DC/dewow/band-pass/background/gain),
   no undo/redo, no recipe, no 3D/depth — see
-  [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] Out of Scope.
+  [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
+  [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] Out of Scope.
 - File loading is synchronous (no background worker yet — `GUI-1B` TODO in
   `models/dataset_session.py`). Acceptable for the ~8 MB reference sample;
   a much larger file would visibly freeze the UI while it loads.
@@ -145,8 +168,10 @@ output.
 ## İlgili Notlar
 
 - [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]]
+- [[02_SPRINTS/Sprint_GUI_2_Display_Controls]]
 - [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
 - [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]]
+- [[06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization]]
 - [[03_ARCHITECTURE/GUI_Architecture]]
 - `packaging/archaeogpr.spec`
 - `scripts/build_windows.ps1`

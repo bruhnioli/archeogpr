@@ -421,15 +421,44 @@ of them.
 ## GUI (native Windows desktop viewer)
 
 **ArchaeoGPR now has a native PySide6 Windows desktop viewer** (Sprint
-GUI-1, 2026-07-17) alongside the CLI — a real Windows application, not a
-webpage: it never opens a browser tab, never listens on `localhost`, and
-never uses Flask/FastAPI/Streamlit/Dash/Electron. **This version is
-view-only** — B-scan/A-scan display and metadata only. No processing
-(time-zero/DC/dewow/band-pass/background/gain), no undo/redo, no 3D — see
-[Not yet implemented](#not-yet-implemented) and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md).
+GUI-1, 2026-07-17; display controls added in Sprint GUI-2, current version
+`0.2.0`) alongside the CLI — a real Windows application, not a webpage: it
+never opens a browser tab, never listens on `localhost`, and never uses
+Flask/FastAPI/Streamlit/Dash/Electron. **This version is view-only** —
+B-scan/A-scan display, non-destructive display controls, metadata, and PNG
+export only. No processing (time-zero/DC/dewow/band-pass/background/gain),
+no undo/redo, no 3D — see [Not yet implemented](#not-yet-implemented) and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md).
 Those are planned for later, separately-requested sprints (see
 [obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md](obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md)).
+
+**Sprint GUI-2 (`0.2.0`) display features** — every one of these only
+changes how the same, unmodified `dataset.amplitudes` is *rendered*; none
+of them can write to the dataset (see
+[ADR-013](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization.md)):
+
+- **Contrast controls**: percentile clipping (90.0-100.0%, default 99.0%,
+  spinbox + slider), symmetric-around-zero or asymmetric (robust two-sided)
+  auto levels, manual min/max override (an invalid range is never applied
+  to the display — it falls back to the automatic levels and is flagged in
+  the UI), and an optional "auto-scale from visible time range" mode.
+- **Colormap**: Gray or Seismic (sampled directly from matplotlib's own
+  colormaps, so it matches the existing QC PNG exports pixel-for-pixel).
+- **A-scan display modes**: Full amplitude (raw), Robust autoscale (the
+  curve is identical to Full — only the axis range changes), Normalize for
+  display (a separate, display-only copy — the source trace is never
+  modified; the axis is explicitly labeled "display only").
+- **Selected trace**: a spin box synced with clicking the B-scan (0 to
+  `trace_count - 1`), a brighter/thicker marker line, and a status bar that
+  clearly separates the persistently *selected* trace from the transient
+  *cursor-hover* readout.
+- **Metadata panel**: the Value column now stretches with the window,
+  every cell has a full-text tooltip, and a right-click menu copies a
+  field/value/row/source path.
+- **PNG export**: File → Export Current B-scan PNG... renders exactly
+  what's on screen (current channel/colormap/levels) plus a
+  `<name>.display.json` sidecar recording the display settings used —
+  explicitly marked as a display export, never a processing export.
 
 **Run in development** (after `pip install -e ".[dev,gui-test]"`, from a
 python.org CPython venv — see [Installation](#installation)):
@@ -464,12 +493,15 @@ before any wider distribution.
 
 Raw `.ogpr` files are opened read-only exactly as they are by the CLI (see
 [Raw data safety](#raw-data-safety)) — the viewer never writes to the file
-you open, verified by SHA-256 before/after in
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md).
+you open, verified by SHA-256 before/after in both
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md)
+and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md).
 
 Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md`,
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
@@ -477,7 +509,8 @@ Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/09_REFERENCES/Windows_Executable_Build.md`,
 `obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/06_GUI_3D_Risk_Register.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`,
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md`.
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md`.
 
 The `io`, `model`, `processing`, `qc`, `export` packages and the CLI
 documented above are **unchanged** by the GUI — it is a new consumer of
