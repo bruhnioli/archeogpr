@@ -16,6 +16,15 @@ tags: [decision]
 | ADR-007 | [[ADR_007_Canonical_D2_B1_Selection]] | accepted |
 | ADR-008 | [[ADR_008_Background_Removal_Channelwise_and_Window_Policy]] | accepted |
 | ADR-009 | [[ADR_009_Canonical_No_Background_Removal_Policy]] | accepted |
+| ADR-011 | [[ADR_011_GUI_Technology_Decision]] | accepted |
+
+ADR-010 numarası bu index'te kasıtlı olarak atlanmıştır: `src/archaeogpr/
+sprint4b_candidates.py` (untracked, `sprint-04b-gain-candidates`
+branch'i) kod içinde bir ADR-010'a atıf yapıyor, ancak bu ADR henüz
+vault'a yazılmamıştır — bkz.
+[[01_PROJECT_STATE/06_GUI_3D_Risk_Register]] R11. Bu numara, o Sprint 4B
+kararı resmen belgelendiğinde ADR-010 tarafından doldurulacaktır;
+şimdiden başka bir karara verilmemiştir.
 
 Yeni bir önemli mimari karar alındığında yeni bir ADR oluşturun (eskisini
 sessizce değiştirmeyin — karar değişirse eski ADR'yi `superseded` olarak

@@ -12,7 +12,6 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.0",
     "matplotlib>=3.8",
-    "pytest>=7.4",
     "scipy>=1.11",
     "pyyaml>=6.0",
 ]
@@ -21,6 +20,26 @@ dependencies = [
 dev = [
     "ruff>=0.4",
     "mypy>=1.8",
+    "pytest>=7.4",
+    "pytest-qt>=4.4",
+]
+# GUI-0 (design phase, see obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md):
+# no GUI runtime code exists yet under src/archaeogpr/gui/. These two extras are declared now so
+# packaging/dependency-resolution shape is decided ahead of Sprint GUI-1, not because anything
+# imports them yet. Neither is installed by CI; headless install/tests remain `pip install -e ".[dev]"`.
+gui = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+]
+# Self-contained on purpose: `pip install -e ".[gui3d]"` alone must pull the full
+# 2D+3D stack (PySide6/pyqtgraph + pyvista/pyvistaqt), not just the 3D-only pieces.
+# The `gui` list is duplicated here rather than self-referenced (e.g. "archaeogpr[gui]")
+# to avoid relying on extra-to-extra self-reference resolution.
+gui3d = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+    "pyvista>=0.44",
+    "pyvistaqt>=0.11",
 ]
 
 [project.scripts]

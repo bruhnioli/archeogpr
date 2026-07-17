@@ -37,8 +37,23 @@ source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-Core runtime dependencies: `numpy`, `pandas`, `matplotlib`, `pytest`, `scipy`, `pyyaml`.
-Optional dev dependencies (`.[dev]`): `ruff`, `mypy`.
+Core runtime dependencies: `numpy`, `pandas`, `matplotlib`, `scipy`, `pyyaml`.
+Optional dev dependencies (`.[dev]`): `ruff`, `mypy`, `pytest`, `pytest-qt`.
+
+**Planned, not-yet-functional optional extras** (declared in
+`pyproject.toml` as of Sprint GUI-0, see
+[GUI (design phase)](#gui-design-phase--sprint-gui-0-no-runtime-code-yet)
+below):
+
+- Headless processing (no GUI): `pip install -e .`
+- 2D GUI: `pip install -e ".[gui]"` (PySide6, pyqtgraph)
+- Full 2D + 3D GUI: `pip install -e ".[gui3d]"` (PySide6, pyqtgraph,
+  pyvista, pyvistaqt — `gui3d` is self-contained and does not require
+  installing `.[gui]` separately)
+
+Installing `gui`/`gui3d` today only pulls the packages — there is no
+`src/archaeogpr/gui/` code yet that imports them. Neither extra is
+required for the CLI or for running the test suite.
 
 ## Sample data
 
@@ -388,6 +403,33 @@ candidates — see
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/` for the full sprint records and
 `06_DECISIONS/ADR_001..008` for the architectural decisions behind each
 of them.
+
+## GUI (design phase — Sprint GUI-0, no runtime code yet)
+
+**The CLI (see [CLI usage](#cli-usage) above) remains the only working
+interface to this project.** A GUI/3D desktop-application transformation
+has started as a separate, parallel design track: Sprint GUI-0
+(2026-07-17) audited this repository, the Obsidian vault, and
+[NSGeophysics/GPRPy](https://github.com/NSGeophysics/GPRPy) (as an
+architecture/UX reference only — not forked, no code copied) and
+recorded a technology decision (PySide6 + PyQtGraph, with PyVista/
+pyvistaqt as an optional `gui3d` extra) plus an architecture design in
+the Obsidian vault:
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
+`obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
+`obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
+`obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
+`obsidian/ArchaeoGPR_Vault/09_REFERENCES/GPRPy_Reference_and_License_Notes.md`,
+`obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/06_GUI_3D_Risk_Register.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`.
+
+**No `src/archaeogpr/gui/` code, no `MainWindow`, no processing registry,
+no recipe execution, and no 2D/3D viewer exist yet.** The `io`, `model`,
+`processing`, `qc`, `export` packages and the CLI documented above are
+unchanged by this design work and remain the actual, tested
+implementation. The next GUI-related sprint (GUI-1, an application
+shell) has not started and will only begin with a separate, explicit
+user request.
 
 ## Not yet implemented
 
