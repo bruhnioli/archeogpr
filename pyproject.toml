@@ -17,19 +17,26 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Deliberately GUI-free: a broken/absent PySide6 install must never take down
+# `pytest` for headless processing work. See obsidian/ArchaeoGPR_Vault/
+# 06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md.
 dev = [
     "ruff>=0.4",
     "mypy>=1.8",
     "pytest>=7.4",
-    "pytest-qt>=4.4",
 ]
-# GUI-0 (design phase, see obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md):
-# no GUI runtime code exists yet under src/archaeogpr/gui/. These two extras are declared now so
-# packaging/dependency-resolution shape is decided ahead of Sprint GUI-1, not because anything
-# imports them yet. Neither is installed by CI; headless install/tests remain `pip install -e ".[dev]"`.
+# GUI-1: src/archaeogpr/gui/ runtime code. PySide6/pyqtgraph only -- no test
+# dependency, so a plain `pip install -e ".[gui]"` end-user install stays lean.
 gui = [
     "PySide6>=6.7",
     "pyqtgraph>=0.13.7",
+]
+# GUI development/test: the `gui` list duplicated (not self-referenced) plus
+# pytest-qt -- isolated from `dev` on purpose (see above).
+gui-test = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+    "pytest-qt>=4.4",
 ]
 # Self-contained on purpose: `pip install -e ".[gui3d]"` alone must pull the full
 # 2D+3D stack (PySide6/pyqtgraph + pyvista/pyvistaqt), not just the 3D-only pieces.
@@ -40,6 +47,11 @@ gui3d = [
     "pyqtgraph>=0.13.7",
     "pyvista>=0.44",
     "pyvistaqt>=0.11",
+]
+# Windows executable build (Sprint GUI-1 packaging step) -- never required for
+# development or testing, only for `scripts/build_windows.ps1`.
+packaging = [
+    "pyinstaller>=6.10",
 ]
 
 [project.scripts]
@@ -53,6 +65,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gui: GUI tests requiring PySide6/pyqtgraph (pytest-qt) -- run with `pytest -m gui` under QT_QPA_PLATFORM=offscreen; excluded from `pytest -m \"not gui\"` core runs.",
+]
 
 [tool.ruff]
 line-length = 110

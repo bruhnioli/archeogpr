@@ -38,22 +38,36 @@ pip install -e ".[dev]"
 ```
 
 Core runtime dependencies: `numpy`, `pandas`, `matplotlib`, `scipy`, `pyyaml`.
-Optional dev dependencies (`.[dev]`): `ruff`, `mypy`, `pytest`, `pytest-qt`.
+Optional dev dependencies (`.[dev]`): `ruff`, `mypy`, `pytest` — **no Qt
+dependency**, so a broken/absent GUI environment can never take down
+headless `pytest` (see
+[ADR-012](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md)).
 
-**Planned, not-yet-functional optional extras** (declared in
-`pyproject.toml` as of Sprint GUI-0, see
-[GUI (design phase)](#gui-design-phase--sprint-gui-0-no-runtime-code-yet)
+**GUI/packaging extras** (see
+[GUI (native Windows desktop viewer)](#gui-native-windows-desktop-viewer)
 below):
 
-- Headless processing (no GUI): `pip install -e .`
-- 2D GUI: `pip install -e ".[gui]"` (PySide6, pyqtgraph)
-- Full 2D + 3D GUI: `pip install -e ".[gui3d]"` (PySide6, pyqtgraph,
-  pyvista, pyvistaqt — `gui3d` is self-contained and does not require
-  installing `.[gui]` separately)
+| Use case | Command | Pulls in |
+|---|---|---|
+| Headless processing (no GUI) | `pip install -e .` | numpy/pandas/matplotlib/scipy/pyyaml only |
+| 2D GUI runtime | `pip install -e ".[gui]"` | + PySide6, pyqtgraph |
+| GUI development + tests | `pip install -e ".[dev,gui-test]"` | + `dev` + PySide6, pyqtgraph, pytest-qt |
+| Full 2D + 3D GUI runtime | `pip install -e ".[gui3d]"` | + pyvista, pyvistaqt (self-contained — does not require `.[gui]` separately) |
+| Windows executable build | `pip install -e ".[dev,gui-test,packaging]"` | + PyInstaller |
 
-Installing `gui`/`gui3d` today only pulls the packages — there is no
-`src/archaeogpr/gui/` code yet that imports them. Neither extra is
-required for the CLI or for running the test suite.
+**Important:** on Windows, use a **python.org CPython 3.12/3.13 x64**
+interpreter for any `gui`/`gui-test`/`gui3d`/`packaging` install — not
+Anaconda, Miniconda, or the Microsoft Store Python. This project hit a
+`PySide6.QtCore` DLL-loading failure specifically under an Anaconda-based
+interpreter; a python.org CPython venv with the identical PySide6 wheel
+worked on the first try. See
+[ADR-012](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md)
+for the full investigation. Core (`dev`-only) work is unaffected by this —
+any interpreter satisfying `requires-python = ">=3.11"` works fine.
+
+Core testing splits by marker: `pytest -m "not gui"` (no Qt needed) vs.
+`pytest -m gui` (needs `gui-test`, run with
+`QT_QPA_PLATFORM=offscreen` for a headless machine/CI).
 
 ## Sample data
 
@@ -404,32 +418,70 @@ candidates — see
 `06_DECISIONS/ADR_001..008` for the architectural decisions behind each
 of them.
 
-## GUI (design phase — Sprint GUI-0, no runtime code yet)
+## GUI (native Windows desktop viewer)
 
-**The CLI (see [CLI usage](#cli-usage) above) remains the only working
-interface to this project.** A GUI/3D desktop-application transformation
-has started as a separate, parallel design track: Sprint GUI-0
-(2026-07-17) audited this repository, the Obsidian vault, and
-[NSGeophysics/GPRPy](https://github.com/NSGeophysics/GPRPy) (as an
-architecture/UX reference only — not forked, no code copied) and
-recorded a technology decision (PySide6 + PyQtGraph, with PyVista/
-pyvistaqt as an optional `gui3d` extra) plus an architecture design in
-the Obsidian vault:
+**ArchaeoGPR now has a native PySide6 Windows desktop viewer** (Sprint
+GUI-1, 2026-07-17) alongside the CLI — a real Windows application, not a
+webpage: it never opens a browser tab, never listens on `localhost`, and
+never uses Flask/FastAPI/Streamlit/Dash/Electron. **This version is
+view-only** — B-scan/A-scan display and metadata only. No processing
+(time-zero/DC/dewow/band-pass/background/gain), no undo/redo, no 3D — see
+[Not yet implemented](#not-yet-implemented) and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md).
+Those are planned for later, separately-requested sprints (see
+[obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md](obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md)).
+
+**Run in development** (after `pip install -e ".[dev,gui-test]"`, from a
+python.org CPython venv — see [Installation](#installation)):
+
+```bash
+python -m archaeogpr.gui
+python -m archaeogpr.gui --open data/raw/Swath003_Array02.ogpr
+```
+
+**Build the Windows executable** (see
+[obsidian/ArchaeoGPR_Vault/09_REFERENCES/Windows_Executable_Build.md](obsidian/ArchaeoGPR_Vault/09_REFERENCES/Windows_Executable_Build.md)
+for full detail):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+
+This produces a one-folder, windowed (no console) build at:
+
+```
+dist\ArchaeoGPR\ArchaeoGPR.exe
+```
+
+**This is the file an end user double-clicks.** No Python install, no
+terminal, and no virtual environment are needed on their machine — the
+`_internal\` folder next to it bundles the Python runtime, Qt, and every
+other dependency. **This build is unsigned** (a development build); Windows
+SmartScreen may show an "unrecognized publisher" warning the first time it
+runs — that is expected, not a bug, and this project does not attempt to
+suppress or bypass it. A code-signing certificate should be evaluated
+before any wider distribution.
+
+Raw `.ogpr` files are opened read-only exactly as they are by the CLI (see
+[Raw data safety](#raw-data-safety)) — the viewer never writes to the file
+you open, verified by SHA-256 before/after in
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md).
+
+Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
 `obsidian/ArchaeoGPR_Vault/09_REFERENCES/GPRPy_Reference_and_License_Notes.md`,
+`obsidian/ArchaeoGPR_Vault/09_REFERENCES/Windows_Executable_Build.md`,
 `obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/06_GUI_3D_Risk_Register.md`,
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`.
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md`.
 
-**No `src/archaeogpr/gui/` code, no `MainWindow`, no processing registry,
-no recipe execution, and no 2D/3D viewer exist yet.** The `io`, `model`,
-`processing`, `qc`, `export` packages and the CLI documented above are
-unchanged by this design work and remain the actual, tested
-implementation. The next GUI-related sprint (GUI-1, an application
-shell) has not started and will only begin with a separate, explicit
-user request.
+The `io`, `model`, `processing`, `qc`, `export` packages and the CLI
+documented above are **unchanged** by the GUI — it is a new consumer of
+those existing, unmodified readers, not a rewrite of them.
 
 ## Not yet implemented
 
@@ -438,8 +490,12 @@ fake-working code exists for them:
 
 gain, AGC, F-K filtering, velocity analysis, migration, Hilbert envelope,
 depth slices, anomaly detection, archaeological classification, Blender
-export, GIS export, GUI, trace-by-trace (per-trace-independent) automatic
-time-zero warping, sub-sample shifting.
+export, GIS export, trace-by-trace (per-trace-independent) automatic
+time-zero warping, sub-sample shifting. **GUI**: a view-only native
+Windows viewer (B-scan/A-scan/metadata) is implemented — see
+[GUI (native Windows desktop viewer)](#gui-native-windows-desktop-viewer)
+— but processing dialogs, undo/redo, recipes, and any 3D/depth view are
+not, and are planned for later, separately-requested sprints.
 
 **Background-removal algorithms are implemented as Sprint 4A candidates,
 but no candidate has been selected as canonical** — see
