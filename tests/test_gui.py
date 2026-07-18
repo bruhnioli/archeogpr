@@ -18,8 +18,12 @@ first.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import threading
+import time
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +32,7 @@ pytest.importorskip("pyqtgraph")
 
 import numpy as np
 import pyqtgraph as pg
+from PySide6.QtCore import QObject
 
 from archaeogpr.gui import app as gui_app
 from archaeogpr.gui.main_window import MainWindow
@@ -35,6 +40,7 @@ from archaeogpr.gui.models.dataset_session import DatasetSession
 from archaeogpr.gui.views.ascan_view import AScanView
 from archaeogpr.gui.views.bscan_view import BScanView
 from archaeogpr.gui.views.metadata_panel import MetadataPanel
+from archaeogpr.gui.workers import file_loader as file_loader_module
 
 pytestmark = pytest.mark.gui
 
@@ -221,6 +227,7 @@ def test_open_bad_path_preserves_previous_session(qtbot, dataset_factory, tmp_pa
 
     missing_path = tmp_path / "does_not_exist.ogpr"
     window.open_path(missing_path)
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)  # load is async (GUI-1B)
 
     assert window.session.dataset is dataset  # untouched, not partially replaced
     assert window.session.selected_channel == 1
@@ -256,6 +263,66 @@ class _FakeMouseEvent:
 
     def scenePos(self):
         return self._scene_pos
+
+
+class _GatedReader:
+    """A controllable stand-in for ``read_ogpr`` -- blocks until the test calls :meth:`release`.
+
+    Used (via ``monkeypatch.setattr(file_loader_module, "read_ogpr", ...)``)
+    to deterministically test GUI-1B's background-thread behavior (worker
+    doesn't block the main thread, cancel-while-blocked, close-during-load)
+    without a real wall-clock sleep -- ``threading.Event.wait`` is a bounded
+    safety net, released immediately once the test is ready.
+    """
+
+    def __init__(self, dataset=None, exc=None):
+        self.started = threading.Event()
+        self._release_event = threading.Event()
+        self.dataset = dataset
+        self.exc = exc
+        self.call_thread_ident: int | None = None
+        self.call_count = 0
+
+    def __call__(self, _path):
+        self.call_count += 1
+        self.call_thread_ident = threading.get_ident()
+        self.started.set()
+        released = self._release_event.wait(timeout=5.0)
+        assert released, "test never called release() -- see _GatedReader"
+        if self.exc is not None:
+            raise self.exc
+        assert self.dataset is not None
+        return self.dataset
+
+    def release(self) -> None:
+        self._release_event.set()
+
+
+class _ThreadRecorder(QObject):
+    """Records which thread a connected slot actually ran on.
+
+    Must be a real ``QObject`` subclass with a genuine, class-defined method
+    (never monkeypatched onto ``MainWindow`` after the fact, and never a
+    plain non-QObject class) -- PySide6 only reliably resolves a cross-thread
+    signal to a QueuedConnection when the connected callable is a bound
+    method of a QObject whose thread affinity it can determine, as that
+    QObject's class existed when first defined. A method patched onto
+    ``MainWindow``/an instance later (even one that just wraps and delegates
+    to the original) is not part of that original binding and silently falls
+    back to a direct, same-thread call -- confirmed empirically while
+    writing this test suite. Connecting a *separate*, genuinely-QObject
+    helper's method alongside the production connection avoids that pitfall
+    entirely.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.thread_seen = None
+
+    def record(self, _token, _dataset, _path):
+        from PySide6.QtCore import QThread
+
+        self.thread_seen = QThread.currentThread()
 
 
 # 13. Default DisplaySettings ------------------------------------------------
@@ -937,3 +1004,678 @@ def test_cursor_status_reflects_current_channel_after_switch(qtbot, dataset_fact
     window._on_point_hovered(2, 5.0, 99.9)
     assert "channel 05" in window.cursor_label.text()
     assert "channel 00" not in window.cursor_label.text()
+
+
+# ============================================================================
+# Sprint GUI-1B -- background file loading (workers/file_loader.py, ADR-014)
+# ============================================================================
+
+
+def _raise_value_error(_path):
+    raise ValueError("boom")
+
+
+# 46. FileLoadWorker emits `loaded` on a successful read ----------------------
+
+
+def test_file_load_worker_emits_loaded_on_success(dataset_factory, monkeypatch):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: dataset)
+
+    worker = file_loader_module.FileLoadWorker("dummy.ogpr", 1, threading.Event())
+    loaded_calls = []
+    finished_calls = []
+    worker.loaded.connect(lambda token, ds, path: loaded_calls.append((token, ds, path)))
+    worker.finished.connect(finished_calls.append)
+
+    worker.run()
+
+    assert len(loaded_calls) == 1
+    token, ds, _path = loaded_calls[0]
+    assert token == 1
+    assert ds is dataset
+    assert finished_calls == [1]
+
+
+# 47. FileLoadWorker emits `failed` on a reader exception ---------------------
+
+
+def test_file_load_worker_emits_failed_on_error(monkeypatch):
+    monkeypatch.setattr(file_loader_module, "read_ogpr", _raise_value_error)
+
+    worker = file_loader_module.FileLoadWorker("dummy.ogpr", 7, threading.Event())
+    failed_calls = []
+    worker.failed.connect(lambda token, short, tb, path: failed_calls.append((token, short, tb, path)))
+
+    worker.run()
+
+    assert len(failed_calls) == 1
+    token, short, tb, _path = failed_calls[0]
+    assert token == 7
+    assert short == "boom"
+    assert "ValueError" in tb
+
+
+# 48. A background load never blocks the Qt main thread -----------------------
+
+
+def test_open_path_does_not_block_main_thread(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_path("irrelevant.ogpr")
+    assert reader.started.wait(timeout=5.0)  # worker reached the blocking call
+
+    # If the blocking call ran on this (main) thread instead, processEvents()
+    # below would hang for the full 5s the reader is gated -- it doesn't.
+    start = time.monotonic()
+    qtbot.wait(20)
+    assert time.monotonic() - start < 2.0
+    assert window.is_loading
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+    assert window.last_load_outcome == "success"
+
+
+# -- thread-safety (section 15) ----------------------------------------------
+
+
+def test_reader_call_runs_off_the_main_thread(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+    main_thread_ident = threading.get_ident()
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("irrelevant.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    assert reader.call_thread_ident is not None
+    assert reader.call_thread_ident != main_thread_ident
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+def test_worker_loaded_slot_runs_on_qt_main_thread(qtbot, monkeypatch, dataset_factory):
+    from PySide6.QtWidgets import QApplication
+
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: dataset)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    recorder = _ThreadRecorder()
+
+    window.open_path("irrelevant.ogpr")
+    assert window._load_worker is not None
+    window._load_worker.loaded.connect(
+        recorder.record
+    )  # a second, real-QObject connection -- see _ThreadRecorder
+
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert recorder.thread_seen is QApplication.instance().thread()
+
+
+# 49 & 50. LOADING disables Open and enables Cancel ---------------------------
+
+
+def test_loading_state_disables_open_enables_cancel(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.open_action.isEnabled()
+    assert not window.load_cancel_button.isEnabled()
+
+    window.open_path("irrelevant.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    assert not window.open_action.isEnabled()
+    assert window.load_cancel_button.isEnabled()
+    assert not window._load_progress_widget.isHidden()
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+    assert window.open_action.isEnabled()
+
+
+# 51. SUCCESS commits the new dataset atomically ------------------------------
+
+
+def test_successful_load_commits_session_atomically(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=5, channels_count=3, samples_count=8)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: dataset)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert not window.session.is_loaded
+
+    window.open_path("some.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window.session.is_loaded
+    assert window.session.dataset is dataset
+    assert window.last_load_outcome == "success"
+    assert window.channel_spin.isEnabled()
+
+
+# 52. ERROR preserves the previous session ------------------------------------
+#
+# Covered by test_open_bad_path_preserves_previous_session (updated for the
+# async load path this sprint) -- not duplicated here.
+
+
+# 53. CANCELLED preserves the previous session --------------------------------
+
+
+def test_cancelled_load_preserves_previous_session(qtbot, monkeypatch, dataset_factory):
+    old_dataset = dataset_factory(slices_count=6, channels_count=2, samples_count=20)
+    new_dataset = dataset_factory(slices_count=9, channels_count=4, samples_count=30)
+    reader = _GatedReader(dataset=new_dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.session.dataset = old_dataset
+    window.session.selected_channel = 1
+    window.session.selected_trace = 3
+
+    window.open_path("new.ogpr")
+    assert reader.started.wait(timeout=5.0)
+    window._on_cancel_load_clicked()
+    reader.release()  # the blocking call now returns successfully -- too late, cancel already requested
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window.session.dataset is old_dataset
+    assert window.session.selected_channel == 1
+    assert window.session.selected_trace == 3
+    assert window.last_load_outcome == "cancelled"
+
+
+# 54. Cancellation also wins over a late-arriving failure ---------------------
+
+
+def test_cancellation_takes_precedence_over_a_late_failure(qtbot, monkeypatch, dataset_factory):
+    old_dataset = dataset_factory(slices_count=5, channels_count=2, samples_count=12)
+    reader = _GatedReader(exc=ValueError("late failure"))
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.session.dataset = old_dataset
+
+    window.open_path("bad.ogpr")
+    assert reader.started.wait(timeout=5.0)
+    window._on_cancel_load_clicked()
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window.session.dataset is old_dataset
+    assert window.last_load_outcome == "cancelled"  # not "error" -- cancellation wins
+
+
+# 55. A second concurrent load is rejected outright ---------------------------
+
+
+def test_second_concurrent_load_is_rejected(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_path("first.ogpr")
+    assert reader.started.wait(timeout=5.0)
+    first_worker = window._load_worker
+    first_thread = window._load_thread
+
+    window.open_path("second.ogpr")  # must be rejected -- a load is already in progress
+
+    assert window._load_worker is first_worker
+    assert window._load_thread is first_thread
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+# 56. A new load can start once the previous one has finished -----------------
+
+
+def test_new_load_can_start_after_previous_finishes(qtbot, monkeypatch, dataset_factory):
+    dataset_a = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    dataset_b = dataset_factory(slices_count=6, channels_count=3, samples_count=15)
+    results = iter([dataset_a, dataset_b])
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: next(results))
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_path("a.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+    assert window.session.dataset is dataset_a
+
+    window.open_path("b.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+    assert window.session.dataset is dataset_b
+
+
+# 57. The progress bar is always indeterminate (no fabricated percentage) -----
+
+
+def test_progress_bar_is_always_indeterminate(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    assert window.load_progress_bar.minimum() == 0
+    assert window.load_progress_bar.maximum() == 0  # (0, 0) is Qt's indeterminate range
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+# 58, 59, 60. Progress UI hides after success / error / cancel ---------------
+
+
+def test_progress_ui_hides_after_success(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: dataset)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window._load_progress_widget.isHidden()
+
+
+def test_progress_ui_hides_after_error(qtbot, monkeypatch, dataset_factory, no_blocking_error_dialog):
+    monkeypatch.setattr(file_loader_module, "read_ogpr", _raise_value_error)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("bad.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window._load_progress_widget.isHidden()
+    assert len(no_blocking_error_dialog) == 1
+
+
+def test_progress_ui_hides_after_cancel(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+    window._on_cancel_load_clicked()
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window._load_progress_widget.isHidden()
+
+
+# 61-70. Deferred-close lifecycle (ADR-014 fix round) -------------------------
+#
+# closeEvent() no longer blocks (no wait()) and no longer orphans a running
+# QThread via setParent(None) -- it defers actual window destruction until
+# the in-flight load's thread has genuinely finished. See ADR-014.
+
+
+def test_close_while_blocked_defers_destruction(qtbot, monkeypatch, dataset_factory):
+    """A. Close while blocked defers destruction: nothing is torn down yet."""
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    thread = window._load_thread
+    worker = window._load_worker
+    assert thread is not None
+    assert worker is not None
+
+    window.close()  # must return immediately -- no wait(), no blocking
+
+    assert window._close_pending is True
+    assert window._load_thread is thread  # still tracked -- not cleared early
+    assert window._load_worker is worker
+    assert thread.isRunning()  # the QThread itself was never torn down
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+def test_close_completes_after_worker_finishes(qtbot, monkeypatch, dataset_factory):
+    """B. Close completes once the deferred worker actually finishes."""
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    window.close()
+    assert window._close_pending is True
+
+    reader.release()
+    qtbot.waitUntil(lambda: window._load_thread is None, timeout=5000)
+    qtbot.waitUntil(lambda: window._close_pending is False, timeout=5000)
+
+    assert window._load_worker is None
+    assert window.last_load_outcome == "cancelled"  # the blocked read's result was discarded
+
+
+def test_cancel_token_is_set_immediately_even_while_worker_is_blocked(qtbot, monkeypatch, dataset_factory):
+    """C. The cancellation token is set synchronously by the GUI thread -- not queued."""
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)  # worker is blocked inside the reader call right now
+
+    cancel_event = window._load_cancel_event
+    assert cancel_event is not None
+    assert not cancel_event.is_set()
+
+    window._on_cancel_load_clicked()
+
+    assert cancel_event.is_set()  # true immediately -- does not require the worker's event loop
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+def test_load_thread_finished_cleanup_is_idempotent(qtbot):
+    """F. Cleanup can run more than once without raising or corrupting state."""
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_load_thread_finished()
+    assert window._load_thread is None
+    assert window._file_load_state == file_loader_module.FileLoadState.IDLE
+
+    window._on_load_thread_finished()  # a second, redundant call must be harmless
+    assert window._load_thread is None
+    assert window._file_load_state == file_loader_module.FileLoadState.IDLE
+
+
+def test_outcome_handled_does_not_prematurely_clear_thread_reference(qtbot, dataset_factory):
+    """G. An outcome signal alone never clears bookkeeping -- only thread.finished does.
+
+    This is what makes a stale ``thread.finished`` unable to clear a
+    *different*, still-active load's references: by the time any
+    ``thread.finished`` could fire, the outcome handler for that exact
+    thread has already run and left the bookkeeping untouched, and
+    ``open_path()`` cannot start a replacement load until this handler
+    actually clears it (see ``is_loading``/ADR-014).
+    """
+    from PySide6.QtCore import QThread
+
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    cancel_event = threading.Event()
+    token = window._current_load_token + 1
+    window._current_load_token = token
+    thread = QThread(window)
+    worker = file_loader_module.FileLoadWorker("dummy.ogpr", token, cancel_event)
+    window._load_thread = thread
+    window._load_worker = worker
+    window._load_cancel_event = cancel_event
+    window._set_file_load_state(file_loader_module.FileLoadState.LOADING)
+
+    window._on_worker_loaded(token, dataset, "dummy.ogpr")  # outcome only
+
+    assert window._load_thread is thread  # must NOT have been cleared yet
+    assert window._load_worker is worker
+
+    window._on_load_thread_finished()  # only this clears it
+
+    assert window._load_thread is None
+    assert window._load_worker is None
+
+
+def test_no_qthread_destroyed_warning_during_deferred_close(qtbot, monkeypatch, dataset_factory, capsys):
+    """H. No "QThread: Destroyed while thread is still running" during a full deferred-close cycle."""
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    window.close()
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    captured = capsys.readouterr()
+    assert "Destroyed while thread is still running" not in captured.err
+    assert "Destroyed while thread is still running" not in captured.out
+
+
+def test_close_without_active_worker_accepts_immediately(qtbot):
+    """I. Closing with no load in flight accepts immediately -- the deferred path is never entered."""
+    from PySide6.QtGui import QCloseEvent
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted()
+    assert window._close_pending is False
+
+
+def test_gui_remains_responsive_while_close_is_pending(qtbot, monkeypatch, dataset_factory):
+    """J. The main event loop keeps processing other events while a close is pending."""
+    from PySide6.QtCore import QTimer
+
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    window.close()
+    assert window._close_pending is True
+
+    # An unrelated timer firing while we wait proves closeEvent() did not
+    # block the event loop with a real wait() call.
+    fired = []
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(lambda: fired.append(True))
+    timer.start(10)
+    qtbot.waitUntil(lambda: bool(fired), timeout=2000)
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+
+def test_new_load_is_rejected_while_deferred_close_is_pending(qtbot, monkeypatch, dataset_factory):
+    """K. A pending shutdown rejects any new load -- including in the gap between
+    ``thread.finished`` cleanup (which already clears ``_load_thread``, so
+    ``is_loading`` alone would say "no load in flight") and the deferred
+    close's retried ``self.close()`` actually running. ``QTimer.singleShot``
+    is monkeypatched to capture, rather than schedule, that retry -- this is
+    what lets the test land deterministically inside that exact gap instead
+    of racing real event-loop timing.
+    """
+    from PySide6.QtCore import QTimer
+
+    dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    deferred_close_calls: list = []
+    monkeypatch.setattr(
+        QTimer, "singleShot", staticmethod(lambda _msec, callback: deferred_close_calls.append(callback))
+    )
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("first.ogpr")
+    assert reader.started.wait(timeout=5.0)
+    first_token = window._current_load_token
+
+    window.close()
+    assert window._close_pending is True
+
+    reader.release()
+    qtbot.waitUntil(lambda: window._load_thread is None, timeout=5000)
+
+    # thread.finished cleanup has now run: is_loading is False, but the
+    # deferred retry (captured above, not the real QTimer) has not run yet --
+    # this is exactly the gap the fix closes.
+    assert not window.is_loading
+    assert window._close_pending is True
+    assert len(deferred_close_calls) == 1
+
+    window.open_path("second.ogpr")  # must be rejected outright
+
+    assert window._load_thread is None  # no new thread was created
+    assert window._load_worker is None  # no new worker was created
+    assert window._current_load_token == first_token  # no new token issued
+    assert reader.call_count == 1  # the reader was never invoked a second time
+    assert window.session.dataset is None  # session untouched by the rejected attempt
+
+    # Let the real deferred close proceed, same as production would.
+    deferred_close_calls[0]()
+    assert window._close_pending is False
+
+
+# 63. `--open` on a file that fails to parse exits non-zero -------------------
+
+
+def test_open_flag_invalid_file_exit_code(tmp_path, monkeypatch, no_blocking_error_dialog):
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    missing_path = tmp_path / "does_not_exist.ogpr"
+    exit_code = gui_app.main(["--open", str(missing_path), "--smoke-test"])
+    assert exit_code != 0
+
+
+# `--open` success exit code and `--open --smoke-test` determinism with a real
+# synthetic fixture are covered by test_open_flag_smoke (updated this sprint
+# for the async load path) -- not duplicated here.
+
+
+# 64. The async load path never modifies the source dataset ------------------
+
+
+def test_async_load_does_not_modify_source_dataset(qtbot, monkeypatch, dataset_factory):
+    dataset = dataset_factory(slices_count=6, channels_count=2, samples_count=16)
+    before = dataset.amplitudes.tobytes()
+    monkeypatch.setattr(file_loader_module, "read_ogpr", lambda path: dataset)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path("x.ogpr")
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+
+    assert window.session.dataset is dataset
+    assert dataset.amplitudes.tobytes() == before
+    assert not dataset.amplitudes.flags.writeable
+
+
+# 65. The real reference OGPR file's SHA-256 is unchanged after an async open --
+
+
+def test_async_load_preserves_real_ogpr_file_hash(qtbot):
+    real_path = Path("data/raw/Swath003_Array02.ogpr")
+    if not real_path.exists():
+        pytest.skip("reference OGPR file not present in this checkout")
+
+    before = hashlib.sha256(real_path.read_bytes()).hexdigest()
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_path(real_path)
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=10000)
+
+    after = hashlib.sha256(real_path.read_bytes()).hexdigest()
+    assert window.last_load_outcome == "success"
+    assert after == before
+
+
+# 66. Channel/trace/display state is untouched until a load actually succeeds --
+
+
+def test_state_unchanged_while_load_in_progress(qtbot, monkeypatch, dataset_factory):
+    old_dataset = dataset_factory(slices_count=6, channels_count=4, samples_count=16)
+    new_dataset = dataset_factory(slices_count=9, channels_count=2, samples_count=10)
+    reader = _GatedReader(dataset=new_dataset)
+    monkeypatch.setattr(file_loader_module, "read_ogpr", reader)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.session.dataset = old_dataset
+    window.session.selected_channel = 2
+    window.session.selected_trace = 5
+    window._refresh_for_new_dataset()
+
+    window.open_path("new.ogpr")
+    assert reader.started.wait(timeout=5.0)
+
+    # Still mid-load -- nothing about the displayed dataset/channel/trace has changed yet.
+    assert window.session.dataset is old_dataset
+    assert window.session.selected_channel == 2
+    assert window.session.selected_trace == 5
+    assert window.channel_spin.value() == 2
+    np.testing.assert_array_equal(window.ascan_view._amplitude, old_dataset.amplitudes[5, 2, :])
+
+    reader.release()
+    qtbot.waitUntil(lambda: not window.is_loading, timeout=5000)
+    assert window.session.dataset is new_dataset
+
+
+# 67. A stale worker result (superseded token) can never overwrite the session --
+
+
+def test_stale_worker_result_cannot_overwrite_newer_session(qtbot, dataset_factory):
+    old_dataset = dataset_factory(slices_count=4, channels_count=2, samples_count=8)
+    stale_dataset = dataset_factory(slices_count=9, channels_count=5, samples_count=20)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.session.dataset = old_dataset
+
+    stale_token = window._current_load_token + 1  # a token from a load superseded by a newer one
+    window._current_load_token = stale_token + 1  # simulate a newer load already in flight
+
+    window._on_worker_loaded(stale_token, stale_dataset, "stale.ogpr")
+
+    assert window.session.dataset is old_dataset  # the stale result never touched the session

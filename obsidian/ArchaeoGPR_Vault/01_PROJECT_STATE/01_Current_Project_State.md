@@ -37,13 +37,20 @@ ve Sprint 2.2 durumları da `done` — bkz.
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]].
 
 Bunun yanında, kullanıcının ayrı isteğiyle başlayan **GUI/3D dönüşüm
-track'i** de kendi ilk sprintini tamamladı: **Sprint GUI-0**
-([[02_SPRINTS/Sprint_GUI_0_Foundation]]) — **done** (2026-07-17). Bu sprint yalnızca
-audit + ADR + mimari tasarım + `pyproject.toml` bağımlılık grupları
-belgeledi; **hiçbir GUI runtime kodu yazılmadı**. Sprint 4B (Gain,
-yukarıda) ile Sprint GUI-0 birbirinden bağımsız, paralel track'lerdir —
-biri diğerini başlatmaz veya değiştirmez. Bkz.
-[[06_DECISIONS/ADR_011_GUI_Technology_Decision]].
+track'i** dört sprint ilerledi ve **`main`'e merge edildi** (2026-07-18,
+PR #2, merge commit `009fb9d`): **Sprint GUI-0**
+([[02_SPRINTS/Sprint_GUI_0_Foundation]], done, yalnızca audit/ADR/mimari
+tasarım, kod yok), **Sprint GUI-1**
+([[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]], done, native PySide6 viewer +
+Windows executable), **Sprint GUI-2**
+([[02_SPRINTS/Sprint_GUI_2_Display_Controls]], done, kontrast/colormap/
+A-scan modları/PNG export, `0.2.0`), ve **Sprint GUI-1B**
+([[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]], done, background
+file-loading worker, `0.2.1`). Sprint 4B (Gain, yukarıda) ile bu GUI
+track'i birbirinden bağımsız, paralel track'lerdir — biri diğerini
+başlatmaz veya değiştirmez. Bkz.
+[[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
+[[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
 
 ## Tamamlanan özellikler
 **Sprint 1:** OpenGPR header/preamble okuyucu, Radar Volume + Sample
@@ -248,17 +255,20 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
 
 ## Henüz uygulanmayan özellikler
 Gain, AGC, F-K filtering, migration, Hilbert envelope, depth-slice
-üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export, GUI.
+üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export.
 Background removal implemente edildi ve repository'de deneysel/opt-in
 bir araç olarak mevcut, ama **canonical policy = A0 (uygulanmadı)** —
 bkz. Sprint 4A yukarıda,
 [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 Hiçbiri için sahte/yarım implementasyon yok — sadece `05_PROCESSING/`
 altında gelecek için planlanan API bağlamı var (bkz.
-[[05_PROCESSING/Processing_Index]]). **GUI artık bir tasarım belgesi
-setine sahip** ([[03_ARCHITECTURE/GUI_Architecture]] ve yukarıdaki
-Sprint GUI-0 girdisi) ama hâlâ **hiçbir runtime kodu yoktur** — bu
-ayrım kasıtlı olarak korunuyor.
+[[05_PROCESSING/Processing_Index]]). **GUI artık çalışan runtime koduna
+sahiptir** (native PySide6 viewer + Windows executable, `0.2.1`, bkz.
+yukarıdaki GUI-0/GUI-1/GUI-2/GUI-1B girdileri ve
+[[03_ARCHITECTURE/GUI_Architecture]]) — ancak **yalnızca view-only**:
+processing GUI'si (time-zero/DC/dewow/band-pass/background/gain),
+undo/redo, recipe, 3D/PyVista/VTK hiçbiri henüz yoktur; bu ayrım kasıtlı
+olarak korunuyor.
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -366,5 +376,6 @@ açık isteği olmadan BAŞLATILMAYACAK. Detay:
 [[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
-2026-07-17 (Sprint GUI-0 — yalnızca tasarım/dokümantasyon; en son
-işleme/kod sprinti hâlâ Sprint 4A Closure, 2026-07-16)
+2026-07-18 (Sprint GUI-1B — background file-loading worker, `main`'e
+merge edildi, `0.2.1`; en son processing/sinyal-işleme sprinti hâlâ
+Sprint 4A Closure, 2026-07-16)

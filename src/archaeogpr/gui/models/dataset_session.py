@@ -64,9 +64,9 @@ class DatasetSession:
         return self.dataset.shape[2] if self.dataset is not None else 0
 
     def load(self, path: str | Path) -> None:
-        """Read ``path`` as an OpenGPR file and replace the current session.
+        """Read ``path`` as an OpenGPR file (synchronously) and replace the current session.
 
-        Reads fully into local variables via the existing, unmodified
+        Reads fully into a local variable via the existing, unmodified
         :func:`archaeogpr.io.ogpr_reader.read_ogpr` before touching ``self``
         -- if reading raises (any ``OGPRError`` subclass, or an ``OSError``
         for a missing/unreadable file), this session's previous
@@ -75,16 +75,29 @@ class DatasetSession:
         read-only by the reader (never written to) -- see
         ``archaeogpr.io.ogpr_reader`` / CLAUDE.md's raw-data-read-only rule.
 
-        TODO: GUI-1B: file loading background worker -- this sprint loads
-        synchronously (see ``Sprint_GUI_1_Viewer_Shell.md``: acceptable for
-        the ~8 MB reference sample; a worker thread is deferred, not
-        forgotten).
+        Blocks the calling thread for the duration of the read. The GUI
+        itself no longer calls this directly (see ``GUI-1B``,
+        ``archaeogpr.gui.workers.file_loader.FileLoadWorker`` /
+        :meth:`commit_dataset`) -- ``load`` remains here for any
+        synchronous/non-GUI caller (e.g. tests, scripts) that wants the same
+        atomic-replace behavior without a background thread.
         """
         resolved_path = Path(path).resolve()
         dataset = read_ogpr(resolved_path)  # raises before any attribute below is touched
+        self.commit_dataset(dataset, resolved_path)
 
+    def commit_dataset(self, dataset: GPRDataset, source_path: Path) -> None:
+        """Atomically replace the current session with an already-loaded dataset.
+
+        The GUI-1B background loader (``FileLoadWorker``) does the actual
+        disk read/parse off the Qt main thread; once it reports success,
+        ``MainWindow`` calls this method -- on the main thread -- to commit
+        the result. This is the one place session state actually changes for
+        a new file, whether the read happened synchronously (:meth:`load`)
+        or via the background worker.
+        """
         self.dataset = dataset
-        self.source_path = resolved_path
+        self.source_path = source_path
         self.selected_channel = 0
         self.selected_trace = 0 if dataset.shape[0] > 0 else None
 

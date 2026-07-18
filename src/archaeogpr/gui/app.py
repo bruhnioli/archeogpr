@@ -15,9 +15,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from collections.abc import Sequence
 
 _LOGGER_NAME = "archaeogpr.gui"
+#: Bounded wait for `--open --smoke-test` to reach a terminal load state --
+#: generous for CI/slow disks, never unbounded (see ADR-014).
+_SMOKE_TEST_LOAD_TIMEOUT_S = 15.0
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -72,6 +76,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     window.show()
 
     if args.smoke_test:
+        if args.open:
+            # `--open` now loads on a background thread (GUI-1B) -- pump the
+            # event loop until it reaches a terminal state instead of the
+            # fixed 5-iteration loop below, which would race a real load.
+            deadline = time.monotonic() + _SMOKE_TEST_LOAD_TIMEOUT_S
+            while window.is_loading and time.monotonic() < deadline:
+                app.processEvents()
+            if window.is_loading:
+                logger.error(
+                    "Smoke test: file load timed out after %.1fs: %s",
+                    _SMOKE_TEST_LOAD_TIMEOUT_S,
+                    args.open,
+                )
+                window.close()
+                return 1
+            if window.last_load_outcome != "success":
+                logger.error(
+                    "Smoke test: file load did not succeed (outcome=%s): %s",
+                    window.last_load_outcome,
+                    args.open,
+                )
+                window.close()
+                return 1
         for _ in range(5):
             app.processEvents()
         window.close()
