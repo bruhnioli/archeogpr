@@ -30,6 +30,10 @@ altyapısı + iki temel sinyal işleme modülü (time-zero, DC offset) kuruldu.
 - `configs/background_candidates.yaml` — Sprint 4A aday tanımları (A1-A8)
 - `tests/` — sentetik fixture tabanlı unit testler + gerçek dosya entegrasyon testleri
 - `obsidian/ArchaeoGPR_Vault/` — bu vault
+- `src/archaeogpr/gui/` — **henüz yoktur.** Sprint GUI-0 (2026-07-17)
+  yalnızca tasarım/ADR yazdı, hiçbir runtime kod eklemedi. Bkz.
+  [[03_ARCHITECTURE/GUI_Architecture]],
+  [[06_DECISIONS/ADR_011_GUI_Technology_Decision]].
 - Detaylı harita: [[03_ARCHITECTURE/Repository_Map]]
 
 ## Aktif sprint
@@ -51,6 +55,18 @@ Sprint 3 ([[02_SPRINTS/Sprint_03_Dewow_Bandpass]]) ve Sprint 3.1
 durumları da `done` (bkz. [[02_SPRINTS/Sprint_02_TimeZero_DCOffset]],
 [[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]]).
+
+**Ayrı, paralel GUI/3D dönüşüm track'i:** kullanıcının kendi isteğiyle
+başladı, ilk sprinti **Sprint GUI-0** ([[02_SPRINTS/Sprint_GUI_0_Foundation]])
+— **done** (2026-07-17). Bu sprint yalnızca
+audit + [[06_DECISIONS/ADR_011_GUI_Technology_Decision]] (PySide6 +
+PyQtGraph + opsiyonel PyVista/pyvistaqt) + mimari tasarım belgeleri
+([[03_ARCHITECTURE/GUI_Architecture]],
+[[03_ARCHITECTURE/3D_Volume_Data_Model]],
+[[03_ARCHITECTURE/Processing_Preview_and_Commit_Model]]) + `pyproject.toml`'a `gui`/`gui3d`
+opsiyonel bağımlılık grupları üretti — **`src/archaeogpr/gui/` altında
+hiçbir kod yoktur.** Bu track, Sprint 4A/4B ile bağımsızdır — biri
+diğerini başlatmaz/değiştirmez.
 
 ## Mevcut çalışan özellikler
 - Sprint 1: `.ogpr` okuyucu, `GPRDataset`, türetilmiş metadata, temel QC
@@ -264,6 +280,12 @@ Detay: [[04_DATASETS/Swath003_Array02]].
 - A0 kararını (veya A1-A8'i) kullanıcının kendi yeni, açık isteği
   olmadan sessizce değiştirme.
 - A1-A8'i (artık deneysel/opt-in araçlar) repository'den silme.
+- Kullanıcının ayrı, açık onayı olmadan `src/archaeogpr/gui/` altında
+  runtime kod yazmaya başlama (GUI-1 dahil) — Sprint GUI-0 yalnızca
+  tasarım/ADR'dır, bir GUI-1 onayı DEĞİLDİR.
+- GPRPy'den doğrudan kod kopyalama/uyarlama (önceden ayrıca onay
+  gerekir) veya CREWES/irlib fk-migration kodunu kullanma — bkz.
+  [[09_REFERENCES/GPRPy_Reference_and_License_Notes]].
 
 Tam liste: proje kökündeki `CLAUDE.md`.
 
@@ -281,3 +303,8 @@ açık isteği olmadan BAŞLATILMAYACAK — bkz.
 3. [[01_PROJECT_STATE/02_Next_Development_Sprint]]
 4. [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]]
 5. [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]
+
+GUI/3D track'i üzerinde çalışırken ayrıca:
+6. [[02_SPRINTS/Sprint_GUI_0_Foundation]]
+7. [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
+8. [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]]

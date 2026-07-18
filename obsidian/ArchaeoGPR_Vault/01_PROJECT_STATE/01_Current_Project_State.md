@@ -36,6 +36,15 @@ ve Sprint 2.2 durumları da `done` — bkz.
 [[02_SPRINTS/Sprint_02_1_TimeZero_DCOffset_Review]],
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]].
 
+Bunun yanında, kullanıcının ayrı isteğiyle başlayan **GUI/3D dönüşüm
+track'i** de kendi ilk sprintini tamamladı: **Sprint GUI-0**
+([[02_SPRINTS/Sprint_GUI_0_Foundation]]) — **done** (2026-07-17). Bu sprint yalnızca
+audit + ADR + mimari tasarım + `pyproject.toml` bağımlılık grupları
+belgeledi; **hiçbir GUI runtime kodu yazılmadı**. Sprint 4B (Gain,
+yukarıda) ile Sprint GUI-0 birbirinden bağımsız, paralel track'lerdir —
+biri diğerini başlatmaz veya değiştirmez. Bkz.
+[[06_DECISIONS/ADR_011_GUI_Technology_Decision]].
+
 ## Tamamlanan özellikler
 **Sprint 1:** OpenGPR header/preamble okuyucu, Radar Volume + Sample
 Geolocations binary blok okuyucuları, `GPRDataset` immutable veri modeli,
@@ -219,6 +228,24 @@ türetilmiş metadata, temel QC görselleri/exportlar, `inspect`/`header` CLI.
   [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]],
   [[01_PROJECT_STATE/03_Open_Issues]] ISSUE-012 (kapatıldı).
 
+**Sprint GUI-0** (done — 2026-07-17, kod YOK, yalnızca tasarım):
+- Repository audit + Obsidian vault audit + GPRPy (yalnızca referans,
+  fork edilmedi/kod alınmadı) mimari incelemesi.
+- 7 yeni vault belgesi: [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
+  (PySide6 + PyQtGraph + opsiyonel PyVista/pyvistaqt kararı),
+  [[03_ARCHITECTURE/GUI_Architecture]],
+  [[03_ARCHITECTURE/3D_Volume_Data_Model]],
+  [[03_ARCHITECTURE/Processing_Preview_and_Commit_Model]],
+  [[09_REFERENCES/GPRPy_Reference_and_License_Notes]],
+  [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]],
+  [[02_SPRINTS/Sprint_GUI_0_Foundation]].
+- `pyproject.toml`: opsiyonel `gui`/`gui3d` bağımlılık grupları eklendi;
+  `pytest` runtime `dependencies`'ten `dev` extra'sına taşındı (runtime
+  kodunda `pytest` import'u olmadığı önce doğrulandı) — headless
+  kurulum/CI davranışı değişmedi.
+- `src/archaeogpr/gui/` **henüz yoktur**. Bkz.
+  [[02_SPRINTS/Sprint_GUI_0_Foundation]].
+
 ## Henüz uygulanmayan özellikler
 Gain, AGC, F-K filtering, migration, Hilbert envelope, depth-slice
 üretimi, anomaly detection, arkeolojik sınıflandırma, Blender export, GUI.
@@ -228,7 +255,10 @@ bkz. Sprint 4A yukarıda,
 [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]].
 Hiçbiri için sahte/yarım implementasyon yok — sadece `05_PROCESSING/`
 altında gelecek için planlanan API bağlamı var (bkz.
-[[05_PROCESSING/Processing_Index]]).
+[[05_PROCESSING/Processing_Index]]). **GUI artık bir tasarım belgesi
+setine sahip** ([[03_ARCHITECTURE/GUI_Architecture]] ve yukarıdaki
+Sprint GUI-0 girdisi) ama hâlâ **hiçbir runtime kodu yoktur** — bu
+ayrım kasıtlı olarak korunuyor.
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -336,4 +366,5 @@ açık isteği olmadan BAŞLATILMAYACAK. Detay:
 [[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
-2026-07-16
+2026-07-17 (Sprint GUI-0 — yalnızca tasarım/dokümantasyon; en son
+işleme/kod sprinti hâlâ Sprint 4A Closure, 2026-07-16)

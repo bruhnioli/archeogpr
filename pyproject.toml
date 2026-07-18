@@ -4,7 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archaeogpr"
-version = "0.1.0"
+# Single source of truth for the version: `archaeogpr.__version__` (see
+# src/archaeogpr/__init__.py). `dynamic = ["version"]` + the
+# [tool.setuptools.dynamic] table below reads it at build time so this
+# file can never drift into a second, independently-hardcoded version
+# string -- see ADR-013 for why this matters (GUI-2 bumped 0.1.0 -> 0.2.0
+# and this was the point two literals had silently mismatched before).
+dynamic = ["version"]
 description = "Reader, data model, and signal-processing pipeline for OpenGPR (.ogpr) archaeological GPR data -- time-zero/DC-offset correction, dewow, and band-pass filtering, with a canonical Sprint 3 (D2 dewow + B1 band-pass) processing chain selected by human/geophysical review."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,15 +18,46 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.0",
     "matplotlib>=3.8",
-    "pytest>=7.4",
     "scipy>=1.11",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+# Deliberately GUI-free: a broken/absent PySide6 install must never take down
+# `pytest` for headless processing work. See obsidian/ArchaeoGPR_Vault/
+# 06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md.
 dev = [
     "ruff>=0.4",
     "mypy>=1.8",
+    "pytest>=7.4",
+]
+# GUI-1: src/archaeogpr/gui/ runtime code. PySide6/pyqtgraph only -- no test
+# dependency, so a plain `pip install -e ".[gui]"` end-user install stays lean.
+gui = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+]
+# GUI development/test: the `gui` list duplicated (not self-referenced) plus
+# pytest-qt -- isolated from `dev` on purpose (see above).
+gui-test = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+    "pytest-qt>=4.4",
+]
+# Self-contained on purpose: `pip install -e ".[gui3d]"` alone must pull the full
+# 2D+3D stack (PySide6/pyqtgraph + pyvista/pyvistaqt), not just the 3D-only pieces.
+# The `gui` list is duplicated here rather than self-referenced (e.g. "archaeogpr[gui]")
+# to avoid relying on extra-to-extra self-reference resolution.
+gui3d = [
+    "PySide6>=6.7",
+    "pyqtgraph>=0.13.7",
+    "pyvista>=0.44",
+    "pyvistaqt>=0.11",
+]
+# Windows executable build (Sprint GUI-1 packaging step) -- never required for
+# development or testing, only for `scripts/build_windows.ps1`.
+packaging = [
+    "pyinstaller>=6.10",
 ]
 
 [project.scripts]
@@ -32,8 +69,14 @@ archaeogpr = "archaeogpr.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.dynamic]
+version = { attr = "archaeogpr.__version__" }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gui: GUI tests requiring PySide6/pyqtgraph (pytest-qt) -- run with `pytest -m gui` under QT_QPA_PLATFORM=offscreen; excluded from `pytest -m \"not gui\"` core runs.",
+]
 
 [tool.ruff]
 line-length = 110

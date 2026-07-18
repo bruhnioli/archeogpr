@@ -41,3 +41,33 @@ jobs:
 
       - name: Validate Obsidian vault
         run: python scripts/validate_obsidian_vault.py obsidian/ArchaeoGPR_Vault
+
+  gui:
+    # Separate from `quality` on purpose (Sprint GUI-2, see
+    # obsidian/ArchaeoGPR_Vault/06_DECISIONS/
+    # ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md): a broken/absent
+    # Qt environment must never fail the headless `quality` job, and the
+    # `quality` job's plain `.[dev]` install deliberately has no Qt
+    # dependency at all -- test_gui.py already skips cleanly there via
+    # `pytest.importorskip`. This job is what actually exercises the GUI.
+    name: pytest -m gui (offscreen)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install archaeogpr (with dev + gui-test extras)
+        run: pip install -e ".[dev,gui-test]"
+
+      - name: Qt import smoke test
+        run: python -c "from PySide6.QtCore import qVersion; from PySide6.QtWidgets import QApplication; import pyqtgraph; print('Qt', qVersion(), 'pyqtgraph', pyqtgraph.__version__)"
+
+      - name: pytest -m gui (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -m gui -v

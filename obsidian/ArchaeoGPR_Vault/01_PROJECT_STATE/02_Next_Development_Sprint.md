@@ -5,6 +5,17 @@ tags: [project-state, sprint]
 
 # Next Development Sprint — Sprint 4B / Gain (henüz tanımlanmadı)
 
+> **Not (2026-07-17):** Bu belge yalnızca **Sprint 4B (Gain)** track'ini
+> kapsar; aşağıdaki içerik Sprint GUI-0 ile **değiştirilmedi**. Ayrı,
+> paralel bir GUI/3D dönüşüm track'i de başladı ve kendi ilk sprintini
+> (**Sprint GUI-0** — tasarım/ADR, kod YOK) tamamladı — bkz.
+> [[02_SPRINTS/Sprint_GUI_0_Foundation]],
+> [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]. Bu iki track
+> birbirinden bağımsızdır: Sprint GUI-0'ın tamamlanması Sprint 4B'yi
+> BAŞLATMAZ, Sprint 4B'nin tanımsız kalması da GUI-1'i (bir sonraki GUI
+> kod sprinti) engellemez — ikisi de yalnızca kullanıcının kendi, ayrı
+> açık isteğiyle başlar.
+
 ## Durum: Sprint 4A done (canonical policy = A0); sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
 
 Sprint 4A ([[02_SPRINTS/Sprint_04A_Background_Removal]]) dört
@@ -123,3 +134,7 @@ yalnızca kullanıcının açık isteğiyle netleşecektir.
 [[06_DECISIONS/ADR_007_Canonical_D2_B1_Selection]],
 [[06_DECISIONS/ADR_008_Background_Removal_Channelwise_and_Window_Policy]],
 [[06_DECISIONS/ADR_009_Canonical_No_Background_Removal_Policy]]
+
+Ayrı, paralel GUI/3D track'i için: [[02_SPRINTS/Sprint_GUI_0_Foundation]],
+[[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
+[[01_PROJECT_STATE/06_GUI_3D_Risk_Register]].
