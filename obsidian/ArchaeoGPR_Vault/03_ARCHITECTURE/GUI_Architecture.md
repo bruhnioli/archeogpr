@@ -4,14 +4,20 @@ type: architecture
 
 # GUI Architecture (tasarım — henüz implemente edilmedi)
 
-> **Durum:** Bu not bir **tasarım** belgesidir. `src/archaeogpr/gui/`
-> altında bu notun yazıldığı tarihte (Sprint GUI-0, 2026-07-17) hiçbir
-> runtime kod yoktur. Aşağıdaki katman/modül isimleri GUI-1'den itibaren
-> (kullanıcının ayrı onayıyla, sprint bazında) implemente edilecek bir
-> plandır — [[03_ARCHITECTURE/Architecture_Overview]]'daki "Sprint 1
-> Kapsamının Netliği" bölümündeki ayrımın aynısı burada da geçerlidir:
-> bu notta anlatılan hiçbir düğümün altında henüz fonksiyon/sınıf/CLI
-> komutu yoktur.
+> **Durum:** Bu not bir **tasarım** belgesidir, yazıldığı tarihte (Sprint
+> GUI-0, 2026-07-17) `src/archaeogpr/gui/` altında hiçbir runtime kod
+> yoktu. **Güncelleme (2026-07-18, Sprint GUI-1B sonrası):** GUI/Controller
+> katmanının bir kısmı artık gerçek runtime koduyla mevcut —
+> `src/archaeogpr/gui/{app.py,main_window.py,views/,models/,workers/}` —
+> ve "Dosya okuma ... `QThread`/`QRunnable` worker'larında çalışır" satırı
+> aşağıda artık gerçek: bkz.
+> [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
+> [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
+> Registry/recipes/gridding/3D/undo-redo/processing-dialog katmanları
+> aşağıda anlatıldığı gibi hâlâ yalnızca **tasarımdır** — henüz hiçbiri
+> implemente edilmedi. Bu notun geri kalanı, hangi kısmın gerçek/hangisinin
+> hâlâ plan olduğunu ayırt etmek için değiştirilmeden bırakıldı; kesin
+> güncel durum için ilgili sprint notlarına bakın.
 
 ## Amaç
 
@@ -119,3 +125,7 @@ olduğu için (bkz. ADR-001) snapshot'lar referans paylaşabilir, GPRPy'nin
 - [[09_REFERENCES/GPRPy_Reference_and_License_Notes]]
 - [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]]
 - [[02_SPRINTS/Sprint_GUI_0_Foundation]]
+- [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]]
+- [[02_SPRINTS/Sprint_GUI_2_Display_Controls]]
+- [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]]
+- [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]

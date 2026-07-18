@@ -5,9 +5,11 @@ type: reference
 # Windows Executable Build
 
 How to build, run, and smoke-test the ArchaeoGPR native Windows desktop
-viewer (Sprint GUI-1, display controls added in Sprint GUI-2 — current
-version `0.2.0`). See [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
-[[02_SPRINTS/Sprint_GUI_2_Display_Controls]] for the sprint records and
+viewer (Sprint GUI-1, display controls added in Sprint GUI-2, background
+file loading added in Sprint GUI-1B — current version `0.2.1`). See
+[[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
+[[02_SPRINTS/Sprint_GUI_2_Display_Controls]] /
+[[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] for the sprint records and
 [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] for why
 the interpreter choice below is not optional. The package version is a
 single source of truth (`archaeogpr.__version__` in
@@ -78,9 +80,14 @@ viewer) but does not attempt deeper Qt-submodule trimming yet — see
 
 ```powershell
 dist\ArchaeoGPR\ArchaeoGPR.exe --smoke-test   # exit 0, no visible window stays open
-dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.2.0"
+dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.2.1"
 dist\ArchaeoGPR\ArchaeoGPR.exe --open data\raw\Swath003_Array02.ogpr --smoke-test
 ```
+
+`--open --smoke-test` now waits for the background load (Sprint GUI-1B,
+see [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]])
+to reach a terminal state (bounded, 15s) before deciding the exit code:
+success -> 0, error/cancelled/timeout -> non-zero.
 
 Without `--smoke-test`, the executable stays open (a normal, interactive
 window) until the user closes it -- `--smoke-test` exists specifically to
@@ -92,41 +99,56 @@ All three are logged to `%LOCALAPPDATA%\ArchaeoGPR\logs\archaeogpr.log`
 ## Manual Demo (interactive)
 
 1. Double-click `dist\ArchaeoGPR\ArchaeoGPR.exe`.
-2. **File → Open OGPR...**, pick a `.ogpr` file.
+2. **File → Open OGPR...**, pick a `.ogpr` file. A progress indicator with
+   a **Cancel** button appears in the status bar; **File → Open** is
+   disabled while a load is in progress (Sprint GUI-1B).
 3. B-scan renders for channel 0; the channel/trace controls become enabled.
 4. Change the channel — the B-scan updates.
-5. Move the "Clip percentile" slider (90-100%) — the contrast changes;
+5. Open a second file, then click **Cancel** before it finishes — the
+   previously-displayed dataset (if any) must remain completely
+   unchanged; the status bar shows "Load cancelled".
+6. Move the "Clip percentile" slider (90-100%) — the contrast changes;
    weaker reflections become more visible at a lower percentile.
-6. Switch Gray ↔ Seismic — the colormap changes.
-7. Toggle "Symmetric around zero" off, then try "Manual levels" with a
+7. Switch Gray ↔ Seismic — the colormap changes.
+8. Toggle "Symmetric around zero" off, then try "Manual levels" with a
    valid and then an invalid (min ≥ max) range — the invalid range is
    rejected (shown in red) and never applied.
-8. Click anywhere on the B-scan — the yellow trace marker moves there, the
+9. Click anywhere on the B-scan — the yellow trace marker moves there, the
    trace spin box updates, and the A-scan panel updates to that trace.
-9. Switch the A-scan mode (Full / Robust / Normalize) and observe the
-   difference — the underlying data never changes.
-10. Move the mouse over the B-scan — the status bar's "Cursor" label shows
+10. Switch the A-scan mode (Full / Robust / Normalize) and observe the
+    difference — the underlying data never changes.
+11. Move the mouse over the B-scan — the status bar's "Cursor" label shows
     trace/channel/time/amplitude, separate from the "Selected trace" label.
-11. Scroll to zoom, drag to pan (pyqtgraph's built-in `ViewBox` behavior —
+12. Scroll to zoom, drag to pan (pyqtgraph's built-in `ViewBox` behavior —
     no custom code), then click **Reset View**.
-12. Right-click a metadata row — copy its field/value/row/source path.
-13. **File → Export Current B-scan PNG...** and check the exported PNG +
+13. Right-click a metadata row — copy its field/value/row/source path.
+14. **File → Export Current B-scan PNG...** and check the exported PNG +
     its `.display.json` sidecar.
-14. Close the window.
+15. While a file is loading, close the window — it must disappear
+    immediately (deferred close: cancellation is requested and the window
+    is hidden right away), with no crash and no "QThread: Destroyed while
+    thread is still running" warning; the application fully exits once the
+    in-flight read actually returns, which is not instant for a large file
+    (Sprint GUI-1B, see
+    [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]).
+16. Close the window.
 
 The raw `.ogpr` file's SHA-256 must be identical before and after this
 entire flow — the reader only ever opens it `"rb"` (see
 `archaeogpr.io.ogpr_reader`, unchanged by this sprint).
 
-## Known Limitations (Sprint GUI-1/GUI-2)
+## Known Limitations (Sprint GUI-1/GUI-2/GUI-1B)
 
 - View-only: no processing (time-zero/DC/dewow/band-pass/background/gain),
   no undo/redo, no recipe, no 3D/depth — see
   [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
-  [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] Out of Scope.
-- File loading is synchronous (no background worker yet — `GUI-1B` TODO in
-  `models/dataset_session.py`). Acceptable for the ~8 MB reference sample;
-  a much larger file would visibly freeze the UI while it loads.
+  [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] /
+  [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] Out of Scope.
+- File loading now runs on a background thread (Sprint GUI-1B) and shows
+  progress + a Cancel button, but cancellation is cooperative only: a
+  cancel request cannot interrupt the read already in flight (it only
+  guarantees the result is never committed) — see
+  [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
 - No project/session save, no `.ogpr` file association, no Start Menu/
   desktop shortcut, no installer, no auto-update — all deferred to a
   future packaging sprint.
@@ -169,9 +191,11 @@ output.
 
 - [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]]
 - [[02_SPRINTS/Sprint_GUI_2_Display_Controls]]
+- [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]]
 - [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
 - [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]]
 - [[06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization]]
+- [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]
 - [[03_ARCHITECTURE/GUI_Architecture]]
 - `packaging/archaeogpr.spec`
 - `scripts/build_windows.ps1`

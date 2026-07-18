@@ -19,6 +19,7 @@ tags: [decision]
 | ADR-011 | [[ADR_011_GUI_Technology_Decision]] | accepted |
 | ADR-012 | [[ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] | accepted |
 | ADR-013 | [[ADR_013_Display_Policy_and_Non_Destructive_Visualization]] | accepted |
+| ADR-014 | [[ADR_014_GUI_Background_Worker_and_Cancellation_Policy]] | accepted |
 
 ADR-010 numarası bu index'te kasıtlı olarak atlanmıştır: `src/archaeogpr/
 sprint4b_candidates.py` (untracked, `sprint-04b-gain-candidates`

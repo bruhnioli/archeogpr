@@ -421,16 +421,25 @@ of them.
 ## GUI (native Windows desktop viewer)
 
 **ArchaeoGPR now has a native PySide6 Windows desktop viewer** (Sprint
-GUI-1, 2026-07-17; display controls added in Sprint GUI-2, current version
-`0.2.0`) alongside the CLI — a real Windows application, not a webpage: it
-never opens a browser tab, never listens on `localhost`, and never uses
+GUI-1, 2026-07-17; display controls added in Sprint GUI-2; background file
+loading added in Sprint GUI-1B; current version `0.2.1`) alongside the
+CLI — a real Windows application, not a webpage: it never opens a browser
+tab, never listens on `localhost`, and never uses
 Flask/FastAPI/Streamlit/Dash/Electron. **This version is view-only** —
-B-scan/A-scan display, non-destructive display controls, metadata, and PNG
-export only. No processing (time-zero/DC/dewow/band-pass/background/gain),
-no undo/redo, no 3D — see [Not yet implemented](#not-yet-implemented) and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md).
+B-scan/A-scan display, non-destructive display controls, responsive
+background file loading, metadata, and PNG export only. No processing
+(time-zero/DC/dewow/band-pass/background/gain), no undo/redo, no 3D — see
+[Not yet implemented](#not-yet-implemented) and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md).
 Those are planned for later, separately-requested sprints (see
 [obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md](obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md)).
+
+**Sprint GUI-1B (`0.2.1`) responsive file loading** — opening a `.ogpr`
+file no longer freezes the window: the read happens on a background
+`QThread` (see
+[ADR-014](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy.md)),
+with a progress indicator, a Cancel button, and a strict guarantee that a
+cancelled or failed load never touches the currently-displayed dataset.
 
 **Sprint GUI-2 (`0.2.0`) display features** — every one of these only
 changes how the same, unmodified `dataset.amplitudes` is *rendered*; none
@@ -493,15 +502,17 @@ before any wider distribution.
 
 Raw `.ogpr` files are opened read-only exactly as they are by the CLI (see
 [Raw data safety](#raw-data-safety)) — the viewer never writes to the file
-you open, verified by SHA-256 before/after in both
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md)
+you open, verified by SHA-256 before/after in
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md),
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md),
 and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md).
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md).
 
 Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization.md`,
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
@@ -510,7 +521,8 @@ Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/01_PROJECT_STATE/06_GUI_3D_Risk_Register.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md`,
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md`.
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md`.
 
 The `io`, `model`, `processing`, `qc`, `export` packages and the CLI
 documented above are **unchanged** by the GUI — it is a new consumer of

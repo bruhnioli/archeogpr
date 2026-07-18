@@ -7,15 +7,30 @@ control in the left "Display" group only changes a
 and re-renders from it -- none of them ever touch ``self.session.dataset``
 or its ``amplitudes``/``processing_history``. ``_apply_display_settings()``
 is the one place that pushes the current settings into the views.
+
+**Background file loading** (GUI-1B, see ``ADR-014``): :meth:`open_path`
+never reads the file itself -- it starts a
+:class:`~archaeogpr.gui.workers.file_loader.FileLoadWorker` on a ``QThread``
+and returns immediately, so the window stays responsive while a file loads.
+``self.session`` (the previous dataset) is only ever replaced in
+:meth:`_on_worker_loaded`, after a full, uncancelled, successful read.
+
+**Shutdown is deferred, never blocking, never forced** (see ``ADR-014``):
+closing the window while a load is in flight does not destroy it. Blocking
+OGPR parsing cannot be forcefully interrupted -- closing the window
+requests cancellation and defers final window destruction until the
+reader actually returns; the cancelled result is never committed. There is
+no ``wait()`` call anywhere in :meth:`closeEvent`.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -28,6 +43,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSlider,
     QSpinBox,
@@ -47,6 +63,8 @@ from archaeogpr.gui.models.display_settings import (
 from archaeogpr.gui.views.ascan_view import AScanView
 from archaeogpr.gui.views.bscan_view import BScanView
 from archaeogpr.gui.views.metadata_panel import MetadataPanel
+from archaeogpr.gui.workers.file_loader import FileLoadState, FileLoadWorker
+from archaeogpr.model.dataset import GPRDataset
 
 _LOGGER = logging.getLogger("archaeogpr.gui")
 
@@ -55,6 +73,7 @@ _OGPR_FILE_FILTER = "OpenGPR Files (*.ogpr)"
 _PNG_FILE_FILTER = "PNG Files (*.png)"
 _MANUAL_LEVEL_RANGE = 1.0e12  # generous bound; real amplitude magnitudes are far smaller
 _PERCENTILE_SLIDER_SCALE = 10  # slider is int-only; 90.0-100.0 step 0.1 -> 900-1000 step 1
+_ACTIVE_LOAD_STATES = (FileLoadState.LOADING, FileLoadState.CANCELLING)
 
 _COLORMAP_ITEMS = (("Gray", "gray"), ("Seismic", "seismic"))
 _ASCAN_MODE_ITEMS = (
@@ -86,11 +105,62 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
         self.setMinimumSize(900, 600)
 
+        # -- GUI-1B background file-load state (see ADR-014) -----------------
+        self._file_load_state = FileLoadState.IDLE
+        self._load_thread: QThread | None = None
+        self._load_worker: FileLoadWorker | None = None
+        # Thread-safe (threading.Event, not a plain bool -- see ADR-014):
+        # MainWindow owns it and calls .set() directly, never through a
+        # queued slot, so a cancel/close request always takes effect
+        # immediately regardless of what the worker's thread is doing.
+        self._load_cancel_event: threading.Event | None = None
+        # Every worker is constructed with the token current at that time;
+        # the outcome handlers below (_on_worker_loaded/_failed/_cancelled)
+        # compare its signal's token against this field, not `sender()`
+        # (documented-unreliable across a queued/cross-thread connection --
+        # see ADR-014) -- this is the stale-result rejection mechanism: a
+        # result from a superseded load can never overwrite a newer session.
+        self._current_load_token = 0
+        # Set once per load, alongside the terminal state -- lets --smoke-test
+        # (app.py) distinguish success/error/cancelled after the transient
+        # SUCCESS/ERROR/CANCELLED state has already settled back to IDLE.
+        self._last_load_outcome: str | None = None
+        # True from closeEvent() until the in-flight load's thread has
+        # actually finished -- see closeEvent()/_on_load_thread_finished().
+        self._close_pending = False
+
         self._build_central_views()
         self._build_docks()
         self._build_menu()
         self._build_status_bar()
         self._sync_controls_from_settings()
+        self._set_file_load_state(FileLoadState.IDLE)  # a fresh QPushButton defaults to enabled otherwise
+
+    @property
+    def is_loading(self) -> bool:
+        """``True`` from the moment a load starts until its worker thread has actually finished.
+
+        Deliberately keyed on ``self._load_thread`` (cleared only once
+        ``QThread.finished`` fires -- see :meth:`_on_load_thread_finished`),
+        not on ``self._file_load_state`` -- this is the single, authoritative
+        "is a load-cycle still in flight" guard :meth:`open_path` and
+        :meth:`closeEvent` both rely on, and it is what makes a concurrent
+        second load structurally impossible (not just checked-for): a new
+        load can never start while a previous one's thread object still
+        exists, which is exactly the window during which a stale
+        ``thread.finished`` could otherwise race a fresh one.
+        """
+        return self._load_thread is not None
+
+    @property
+    def last_load_outcome(self) -> str | None:
+        """``"success"``/``"error"``/``"cancelled"`` for the most recent load, or ``None`` before any load.
+
+        Used by ``app.py``'s ``--open --smoke-test`` to tell success apart
+        from failure after the transient SUCCESS/ERROR/CANCELLED state has
+        already settled back to IDLE.
+        """
+        return self._last_load_outcome
 
     # -- construction -----------------------------------------------------
 
@@ -238,10 +308,10 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
-        open_action = QAction("&Open OGPR...", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self._on_open_triggered)
-        file_menu.addAction(open_action)
+        self.open_action = QAction("&Open OGPR...", self)
+        self.open_action.setShortcut("Ctrl+O")
+        self.open_action.triggered.connect(self._on_open_triggered)
+        file_menu.addAction(self.open_action)
 
         file_menu.addSeparator()
         self.export_png_action = QAction("&Export Current B-scan PNG...", self)
@@ -257,7 +327,25 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self.cursor_label, 1)
         self.statusBar().addPermanentWidget(self.display_summary_label)
 
-    # -- file opening -------------------------------------------------------
+        # -- GUI-1B: background load progress (hidden unless loading) --------
+        self.load_status_label = QLabel("")
+        self.load_progress_bar = QProgressBar()
+        self.load_progress_bar.setMaximumWidth(140)
+        self.load_progress_bar.setTextVisible(False)
+        self.load_progress_bar.setRange(0, 0)  # indeterminate: no real byte-level progress is available
+        self.load_cancel_button = QPushButton("Cancel")
+        self.load_cancel_button.clicked.connect(self._on_cancel_load_clicked)
+
+        self._load_progress_widget = QWidget()
+        load_progress_layout = QHBoxLayout(self._load_progress_widget)
+        load_progress_layout.setContentsMargins(0, 0, 0, 0)
+        load_progress_layout.addWidget(self.load_status_label)
+        load_progress_layout.addWidget(self.load_progress_bar)
+        load_progress_layout.addWidget(self.load_cancel_button)
+        self._load_progress_widget.setVisible(False)
+        self.statusBar().addPermanentWidget(self._load_progress_widget)
+
+    # -- file opening (GUI-1B: background worker, see ADR-014) ---------------
 
     def _on_open_triggered(self) -> None:
         path, _selected_filter = QFileDialog.getOpenFileName(self, "Open OGPR", "", _OGPR_FILE_FILTER)
@@ -265,27 +353,213 @@ class MainWindow(QMainWindow):
             self.open_path(path)
 
     def open_path(self, path: str | Path) -> None:
-        """Load ``path`` into the session. Never raises -- errors become a QMessageBox.
+        """Start a background load of ``path``. Returns immediately -- never blocks the GUI thread.
 
-        On failure, the previous session (if any) is left completely
-        untouched: :meth:`DatasetSession.load` only replaces its own state
-        after a fully successful read.
+        Rejects a second concurrent load outright (:attr:`is_loading` is
+        only ``False`` once a previous load's ``QThread`` has actually
+        finished -- see ``ADR-014``). Also rejects any load once shutdown
+        has been requested (:attr:`_close_pending`): that flag stays
+        latched from the first deferred :meth:`closeEvent` call all the
+        way to the window actually closing, which covers the brief gap
+        where :meth:`_on_load_thread_finished` has already cleared
+        ``_load_thread`` (so :attr:`is_loading` alone would say "no more
+        load in flight") but the deferred retry of :meth:`close` has not
+        run yet -- a programmatic ``open_path`` call landing in exactly
+        that gap must not be able to sneak a new load past a pending
+        shutdown. Neither guard depends on the window's visibility, so a
+        programmatic caller is rejected exactly like the menu action. The
+        previous session is only ever replaced in :meth:`_on_worker_loaded`,
+        after a full, uncancelled, successful read; a failed, cancelled, or
+        shutdown-rejected load leaves it completely untouched.
         """
-        _LOGGER.info("Opening OGPR file: %s", path)
-        try:
-            self.session.load(path)
-        except Exception as exc:  # noqa: BLE001 - any reader failure must reach the user, not crash the app
-            _LOGGER.error("Failed to open %s", path, exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Could not open file",
-                f"Failed to open:\n{path}\n\n{type(exc).__name__}: {exc}",
-            )
+        if self._close_pending:
+            _LOGGER.info("File load ignored because application shutdown is pending.")
             return
-        _LOGGER.info(
-            "Opened %s: shape=%s", path, self.session.dataset.shape if self.session.dataset else None
-        )
+
+        if self.is_loading:
+            _LOGGER.info("Load already in progress -- rejecting new request for %s", path)
+            return
+
+        resolved = Path(path).resolve()
+        _LOGGER.info("Load requested: %s", resolved)
+
+        self._current_load_token += 1
+        token = self._current_load_token
+        cancel_event = threading.Event()
+
+        thread = QThread(self)
+        worker = FileLoadWorker(resolved, token, cancel_event)
+        worker.moveToThread(thread)
+
+        # Connected to bound methods of `self` (a QObject living on the main
+        # thread), never lambdas -- this is what makes Qt actually deliver
+        # these cross-thread signals as QueuedConnection. A signal connected
+        # to a plain Python callable (e.g. a lambda) has no QObject for Qt to
+        # resolve a receiver thread from, so AutoConnection silently falls
+        # back to DirectConnection and the slot runs *on the worker thread*,
+        # touching widgets from off the GUI thread -- this crashed
+        # (Windows access violation in pyqtgraph/Qt) during development; see
+        # ADR-014.
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_worker_progress)
+        worker.loaded.connect(self._on_worker_loaded)
+        worker.failed.connect(self._on_worker_failed)
+        worker.cancelled.connect(self._on_worker_cancelled)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        # `thread.finished` (Qt's own, argument-less signal) is what actually
+        # gates `self._load_thread`/`self._load_worker` being cleared -- see
+        # _on_load_thread_finished for why this, and not `worker.finished`,
+        # is the right place for that (ADR-014's cleanup-ordering fix).
+        thread.finished.connect(self._on_load_thread_finished)
+        thread.finished.connect(thread.deleteLater)
+
+        self._load_thread = thread
+        self._load_worker = worker
+        self._load_cancel_event = cancel_event
+        self._last_load_outcome = None
+        self._set_file_load_state(FileLoadState.LOADING)
+        self.load_status_label.setText(f"Preparing {resolved.name}…")
+
+        thread.start()
+
+    def _on_cancel_load_clicked(self) -> None:
+        if self._file_load_state != FileLoadState.LOADING:
+            return
+        _LOGGER.info("Cancellation requested by user")
+        self._request_cancel_current_load()
+        self._set_file_load_state(FileLoadState.CANCELLING)
+        self.load_status_label.setText("Cancelling…")
+
+    def _request_cancel_current_load(self) -> None:
+        """Set the current load's cancellation token directly (thread-safe, not queued).
+
+        ``threading.Event.set()`` takes effect immediately regardless of
+        what the worker thread is doing -- it does not depend on the
+        worker's (nonexistent) event loop processing anything, unlike a
+        queued slot invocation would. See ``ADR-014``.
+        """
+        if self._load_cancel_event is not None:
+            self._load_cancel_event.set()
+
+    # -- worker signal handlers (run on the main thread; see open_path) ------
+    #
+    # Every handler below first checks `token != self._current_load_token` --
+    # this is the stale-result rejection guarantee (ADR-014). `sender()` is
+    # not used for this: Qt documents it as unreliable across a queued/
+    # cross-thread connection, so each signal instead carries the token its
+    # worker was constructed with (see file_loader.py). These handlers
+    # report the outcome (commit/error/discard) but deliberately do **not**
+    # clear `self._load_thread`/`self._load_worker` or move to IDLE -- that
+    # only happens in `_on_load_thread_finished`, once the thread has
+    # actually, fully finished (see that method's docstring).
+
+    def _on_worker_progress(self, token: int, _percent: int, message: str) -> None:
+        if token != self._current_load_token:
+            return
+        self.load_status_label.setText(message)
+
+    def _on_worker_loaded(self, token: int, dataset: GPRDataset, path: str) -> None:
+        if token != self._current_load_token:
+            _LOGGER.info("Discarding stale successful load (superseded by a newer request): %s", path)
+            return
+        self.load_status_label.setText("Updating viewer…")
+        self.session.commit_dataset(dataset, Path(path))
+        _LOGGER.info("Load succeeded: %s shape=%s", path, dataset.shape)
         self._refresh_for_new_dataset()
+        self.load_status_label.setText("Load complete")
+        self._last_load_outcome = "success"
+        self._set_file_load_state(FileLoadState.SUCCESS)
+
+    def _on_worker_failed(self, token: int, short_message: str, traceback_text: str, path: str) -> None:
+        if token != self._current_load_token:
+            return
+        _LOGGER.error("Load failed: %s\n%s", path, traceback_text)
+        self.load_status_label.setText("Load failed")
+        self._last_load_outcome = "error"
+        self._set_file_load_state(FileLoadState.ERROR)
+        QMessageBox.critical(self, "Could not open file", f"Failed to open:\n{path}\n\n{short_message}")
+
+    def _on_worker_cancelled(self, token: int) -> None:
+        if token != self._current_load_token:
+            return
+        _LOGGER.info("Load cancelled")
+        self.load_status_label.setText("Load cancelled")
+        self._last_load_outcome = "cancelled"
+        self._set_file_load_state(FileLoadState.CANCELLED)
+
+    def _on_load_thread_finished(self) -> None:
+        """Connected to the in-flight load's ``QThread.finished`` -- the one place cleanup happens.
+
+        No token/identity check is needed here the way the outcome handlers
+        above need one: :attr:`is_loading` (``self._load_thread is not
+        None``) is the sole gate :meth:`open_path` uses to reject a
+        concurrent load, so a new load structurally cannot start until this
+        exact handler has already run for the previous one -- by
+        construction, ``self._load_thread`` still refers to exactly the
+        thread that just finished. This is also the deterministic point
+        every terminal outcome (success/error/cancelled) converges on
+        (idempotent: clearing already-``None`` fields and moving
+        already-``IDLE`` state is harmless), and where a deferred
+        :meth:`closeEvent` gets retried -- never earlier, so the window is
+        never destroyed while its worker thread is still alive.
+
+        Deliberately does **not** clear :attr:`_close_pending` -- that flag
+        stays latched until the retried :meth:`close` below actually
+        reaches :meth:`closeEvent` again and accepts. Clearing it here
+        instead would reopen exactly the race a stale shutdown guard must
+        close: the gap between this handler returning (``is_loading`` is
+        already ``False``) and the queued retry actually running, during
+        which a programmatic :meth:`open_path` call must still see a
+        pending shutdown and refuse to start a new load.
+        """
+        self._load_thread = None
+        self._load_worker = None
+        self._load_cancel_event = None
+        self._set_file_load_state(FileLoadState.IDLE)
+        if self._close_pending:
+            QTimer.singleShot(0, self.close)
+
+    def _set_file_load_state(self, state: FileLoadState) -> None:
+        self._file_load_state = state
+        self.open_action.setEnabled(state == FileLoadState.IDLE)
+        self.load_cancel_button.setEnabled(state == FileLoadState.LOADING)
+        self._load_progress_widget.setVisible(state in _ACTIVE_LOAD_STATES)
+
+    # -- shutdown: deferred, never blocking, never forced (see ADR-014) ------
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override signature
+        """Defers window destruction until an in-flight load's worker thread has actually finished.
+
+        Blocking OGPR parsing cannot be forcefully interrupted. Closing the
+        window requests cancellation and defers final window destruction
+        until the reader returns; the cancelled result is never committed.
+        There is no ``wait()`` here -- the window is hidden immediately (so
+        the user sees it "close"), but the ``MainWindow``/thread/worker
+        objects stay alive and the GUI event loop keeps running,
+        unblocked, until :meth:`_on_load_thread_finished` retries the
+        close. ``QThread.terminate()`` is never used.
+
+        :attr:`_close_pending` is only cleared in the branch below, once a
+        close is actually being accepted -- never in
+        :meth:`_on_load_thread_finished`. This keeps the flag latched
+        continuously from the very first deferred call here through to
+        this final accepted one, with no gap in between where
+        :meth:`open_path` would see shutdown as no-longer-pending while the
+        window is still only hidden, not actually closed.
+        """
+        if not self.is_loading:
+            self._close_pending = False
+            super().closeEvent(event)
+            return
+
+        _LOGGER.info("Window closing while a load is in progress -- deferring close until it finishes")
+        self._close_pending = True
+        self._request_cancel_current_load()
+        self._set_file_load_state(FileLoadState.CANCELLING)
+        self.load_status_label.setText("Cancelling load before exit…")
+        event.ignore()
+        self.hide()
 
     # -- refresh/update helpers ---------------------------------------------
 
