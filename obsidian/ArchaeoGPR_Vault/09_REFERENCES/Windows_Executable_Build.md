@@ -6,10 +6,13 @@ type: reference
 
 How to build, run, and smoke-test the ArchaeoGPR native Windows desktop
 viewer (Sprint GUI-1, display controls added in Sprint GUI-2, background
-file loading added in Sprint GUI-1B — current version `0.2.1`). See
+file loading added in Sprint GUI-1B, non-destructive processing preview &
+apply added in Sprint GUI-3A — current version `0.3.0`). See
 [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
 [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] /
-[[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] for the sprint records and
+[[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] /
+[[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]] for the sprint
+records and
 [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] for why
 the interpreter choice below is not optional. The package version is a
 single source of truth (`archaeogpr.__version__` in
@@ -69,9 +72,10 @@ dist\
                                     needed, no separate Python install
 ```
 
-One-folder build, ~288 MB total (2026-07-17 measurement) — dominated by
-PySide6's Qt binaries and numpy/scipy's OpenBLAS DLLs, not by this
-project's own code. `packaging/archaeogpr.spec` explicitly excludes
+One-folder build, ~285 MB total (2026-07-19 measurement, v0.3.0 /
+Sprint GUI-3A: 298,551,600 bytes on disk) — dominated by PySide6's Qt
+binaries and numpy/scipy's OpenBLAS DLLs, not by this project's own
+code. `packaging/archaeogpr.spec` explicitly excludes
 `pyqtgraph.examples`/`pyqtgraph.opengl` from the bundle (not used by this
 viewer) but does not attempt deeper Qt-submodule trimming yet — see
 [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] Issues Discovered.
@@ -80,7 +84,7 @@ viewer) but does not attempt deeper Qt-submodule trimming yet — see
 
 ```powershell
 dist\ArchaeoGPR\ArchaeoGPR.exe --smoke-test   # exit 0, no visible window stays open
-dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.2.1"
+dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.3.0"
 dist\ArchaeoGPR\ArchaeoGPR.exe --open data\raw\Swath003_Array02.ogpr --smoke-test
 ```
 
@@ -131,24 +135,57 @@ All three are logged to `%LOCALAPPDATA%\ArchaeoGPR\logs\archaeogpr.log`
     in-flight read actually returns, which is not instant for a large file
     (Sprint GUI-1B, see
     [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]).
-16. Close the window.
+16. In the **Processing** dock, pick an operation (e.g. Dewow), adjust a
+    parameter, click **Preview** — the B-scan/A-scan update to show the
+    preview, the History list marks it "-- PREVIEW, NOT APPLIED", and
+    switching **Display source** to Raw/Current still shows the untouched
+    original/committed dataset (Sprint GUI-3A, see
+    [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]).
+17. Click **Apply Preview** — the History list now shows the operation as
+    applied (no longer "not applied"), and the channel/trace selection and
+    display settings are unchanged.
+18. Preview a different operation, then click **Discard Preview** instead
+    of Apply — the previously-applied chain is untouched.
+19. Click **Reset Current to Raw** (confirm the dialog) — the dataset
+    returns to exactly what was read from the file, discarding the entire
+    applied processing chain in one step (not step-by-step undo).
+20. Start a Preview on a sufficiently large file, then try **File → Open**
+    — it must be rejected (disabled) while processing is in flight, and
+    vice versa (starting a file load disables the Processing panel).
+21. While a preview is computing, close the window — it must disappear
+    immediately (same deferred-close policy as file loading), with no
+    crash and no "QThread: Destroyed while thread is still running"
+    warning.
+22. Close the window.
 
 The raw `.ogpr` file's SHA-256 must be identical before and after this
-entire flow — the reader only ever opens it `"rb"` (see
-`archaeogpr.io.ogpr_reader`, unchanged by this sprint).
+entire flow, including every processing preview/apply — the reader only
+ever opens it `"rb"`, and no processing operation ever writes to it (see
+`archaeogpr.io.ogpr_reader`, unchanged by every GUI sprint).
 
-## Known Limitations (Sprint GUI-1/GUI-2/GUI-1B)
+## Known Limitations (Sprint GUI-1/GUI-2/GUI-1B/GUI-3A)
 
-- View-only: no processing (time-zero/DC/dewow/band-pass/background/gain),
-  no undo/redo, no recipe, no 3D/depth — see
-  [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
+- Processing preview/apply is implemented for exactly five stable
+  operations (time-zero correction, DC offset correction, dewow,
+  band-pass filtering, background removal) — see
+  [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]] /
+  [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]. No
+  gain, no undo/redo stack (only a one-step "Reset Current to Raw"), no
+  recipe system, no saving a processed dataset to a file, no 3D/depth —
+  see [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
   [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] /
-  [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] Out of Scope.
+  [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] /
+  [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]] Out of Scope.
+- Time-zero's `"manual"` (per-channel pick) method and band-pass's
+  `"ormsby"` method are not exposed in the Processing panel — only the
+  automatic time-zero methods and Butterworth band-pass (see ADR-015).
 - File loading now runs on a background thread (Sprint GUI-1B) and shows
   progress + a Cancel button, but cancellation is cooperative only: a
   cancel request cannot interrupt the read already in flight (it only
   guarantees the result is never committed) — see
   [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
+  Processing preview's cancellation is cooperative in exactly the same
+  way (see ADR-015).
 - No project/session save, no `.ogpr` file association, no Start Menu/
   desktop shortcut, no installer, no auto-update — all deferred to a
   future packaging sprint.
@@ -192,10 +229,12 @@ output.
 - [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]]
 - [[02_SPRINTS/Sprint_GUI_2_Display_Controls]]
 - [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]]
+- [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]
 - [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
 - [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]]
 - [[06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization]]
 - [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]
+- [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]
 - [[03_ARCHITECTURE/GUI_Architecture]]
 - `packaging/archaeogpr.spec`
 - `scripts/build_windows.ps1`

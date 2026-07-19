@@ -2,13 +2,31 @@
 type: architecture
 ---
 
-# Processing Preview and Commit Model (tasarım — henüz implemente edilmedi)
+# Processing Preview and Commit Model (kısmen implemente edildi — bkz. güncelleme)
 
-> **Durum:** Tasarım belgesi. `registry.py`, `recipes/` ve GUI dialogları
-> henüz yoktur. Bu not, GUI'nin mevcut `processing/` fonksiyonlarını
-> (değiştirmeden) nasıl çağıracağını ve undo/redo + preview/apply
-> akışının nasıl çalışacağını tanımlar — bkz.
+> **Durum (2026-07-17, Sprint GUI-0):** Tasarım belgesi. `registry.py`,
+> `recipes/` ve GUI dialogları henüz yoktur. Bu not, GUI'nin mevcut
+> `processing/` fonksiyonlarını (değiştirmeden) nasıl çağıracağını ve
+> undo/redo + preview/apply akışının nasıl çalışacağını tanımlar — bkz.
 > [[02_SPRINTS/Sprint_GUI_0_Foundation]].
+>
+> **Güncelleme (2026-07-19, Sprint GUI-3A sonrası):** Bu belgenin
+> **registry + preview/apply** bölümü artık gerçek runtime koduyla
+> mevcut — `src/archaeogpr/gui/processing/{models,registry,adapters}.py`,
+> `src/archaeogpr/gui/workers/processing_worker.py`,
+> `DatasetSession`'ın raw/current/preview ayrımı. Aşağıdaki "Operation
+> Registry" ve "Preview / Apply / Cancel Akışı" bölümleri artık büyük
+> ölçüde gerçek — gerçek implementasyon detayları için
+> [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]] ve
+> [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]'a bakın. **Aşağıdaki
+> "Dataset State ve Undo/Redo" (append-only `SessionState`/`DatasetState`
+> + `cursor`) ve "Recipe" bölümleri hâlâ yalnızca tasarımdır — GUI-3A
+> bunları implemente ETMEDİ** (kasıtlı kapsam kararı, bkz. ADR-015
+> Alternatives Considered): GUI-3A yalnızca `raw_dataset`/`current_dataset`/
+> `preview_dataset` + tek bir `current_revision` sayacı kullanıyor, adım
+> adım geri alınabilir bir history listesi/cursor YOK. Bu notun geri
+> kalanı, hangi kısmın gerçek/hangisinin hâlâ plan olduğunu ayırt etmek
+> için değiştirilmeden bırakıldı.
 
 ## Amaç
 
@@ -146,3 +164,5 @@ NPZ/JSON'a yapılır (mevcut `export/processed.py`,
 - [[09_REFERENCES/GPRPy_Reference_and_License_Notes]]
 - [[05_PROCESSING/Processing_Order]]
 - [[02_SPRINTS/Sprint_GUI_0_Foundation]]
+- [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]
+- [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]

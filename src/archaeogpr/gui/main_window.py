@@ -21,6 +21,18 @@ OGPR parsing cannot be forcefully interrupted -- closing the window
 requests cancellation and defers final window destruction until the
 reader actually returns; the cancelled result is never committed. There is
 no ``wait()`` call anywhere in :meth:`closeEvent`.
+
+**Non-destructive processing preview & apply** (Sprint GUI-3A, see
+``ADR-015``): the Processing dock lets the user run one of five registered,
+already-tested ``archaeogpr.processing`` operations (see
+:mod:`archaeogpr.gui.processing.registry`) as a **preview** -- computed on a
+background :class:`~archaeogpr.gui.workers.processing_worker.ProcessingWorker`
+thread, shown in the B-scan/A-scan/metadata views, but never written to
+``self.session.current_dataset`` until the user explicitly clicks **Apply
+Preview**. File loading and processing preview are mutually exclusive (see
+:attr:`is_loading`/:attr:`is_processing`); closing the window while a
+preview is computing reuses the exact same deferred-close policy as file
+loading.
 """
 
 from __future__ import annotations
@@ -28,9 +40,10 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import Qt, QThread, QTimer
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QStandardItemModel
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,6 +54,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -60,11 +74,15 @@ from archaeogpr.gui.models.display_settings import (
     DisplaySettings,
     default_display_settings,
 )
+from archaeogpr.gui.processing.models import ParameterSpec, ProcessingOperationSpec
+from archaeogpr.gui.processing.registry import REGISTRY, get_operation
 from archaeogpr.gui.views.ascan_view import AScanView
 from archaeogpr.gui.views.bscan_view import BScanView
 from archaeogpr.gui.views.metadata_panel import MetadataPanel
 from archaeogpr.gui.workers.file_loader import FileLoadState, FileLoadWorker
+from archaeogpr.gui.workers.processing_worker import ProcessingState, ProcessingWorker
 from archaeogpr.model.dataset import GPRDataset
+from archaeogpr.processing import ProcessingResult
 
 _LOGGER = logging.getLogger("archaeogpr.gui")
 
@@ -74,12 +92,20 @@ _PNG_FILE_FILTER = "PNG Files (*.png)"
 _MANUAL_LEVEL_RANGE = 1.0e12  # generous bound; real amplitude magnitudes are far smaller
 _PERCENTILE_SLIDER_SCALE = 10  # slider is int-only; 90.0-100.0 step 0.1 -> 900-1000 step 1
 _ACTIVE_LOAD_STATES = (FileLoadState.LOADING, FileLoadState.CANCELLING)
+_ACTIVE_PROCESSING_STATES = (ProcessingState.RUNNING, ProcessingState.CANCELLING)
 
 _COLORMAP_ITEMS = (("Gray", "gray"), ("Seismic", "seismic"))
 _ASCAN_MODE_ITEMS = (
     ("Full amplitude", "full"),
     ("Robust autoscale", "robust"),
     ("Normalize for display", "normalize"),
+)
+
+DisplaySource = Literal["raw", "current", "preview"]
+_DISPLAY_SOURCE_ITEMS: tuple[tuple[str, DisplaySource], ...] = (
+    ("Raw", "raw"),
+    ("Current", "current"),
+    ("Preview", "preview"),
 )
 
 
@@ -129,12 +155,39 @@ class MainWindow(QMainWindow):
         # actually finished -- see closeEvent()/_on_load_thread_finished().
         self._close_pending = False
 
+        # -- GUI-3A processing preview state (see ADR-015) --------------------
+        # Mirrors the file-load state above almost exactly -- see
+        # ProcessingState's docstring for why this is a second, parallel
+        # state machine rather than one merged enum.
+        self._processing_state = ProcessingState.IDLE
+        self._processing_thread: QThread | None = None
+        self._processing_worker: ProcessingWorker | None = None
+        self._processing_cancel_event: threading.Event | None = None
+        self._current_processing_token = 0
+        # "success"/"error"/"cancelled" for the most recent *terminal*
+        # processing outcome, or `None` before any run -- unlike
+        # `_last_load_outcome`, this feeds the Processing panel's persistent
+        # "No preview / Computing / Ready / Failed" label (see
+        # _processing_status_text()), not just a smoke-test exit code.
+        self._last_preview_outcome: str | None = None
+        # One parameter dict per registered operation (not just the
+        # currently-selected one) -- switching the operation combo box must
+        # not lose what the user already typed for a different operation.
+        self._operation_params: dict[str, dict[str, Any]] = {
+            spec.operation_id: spec.defaults() for spec in REGISTRY
+        }
+        self._selected_operation_id: str = REGISTRY[0].operation_id
+        # Which of raw/current/preview the B-scan/A-scan/metadata views
+        # currently render -- see _dataset_for_display().
+        self._display_source: DisplaySource = "current"
+
         self._build_central_views()
         self._build_docks()
         self._build_menu()
         self._build_status_bar()
         self._sync_controls_from_settings()
         self._set_file_load_state(FileLoadState.IDLE)  # a fresh QPushButton defaults to enabled otherwise
+        self._set_processing_state(ProcessingState.IDLE)
 
     @property
     def is_loading(self) -> bool:
@@ -161,6 +214,21 @@ class MainWindow(QMainWindow):
         already settled back to IDLE.
         """
         return self._last_load_outcome
+
+    @property
+    def is_processing(self) -> bool:
+        """``True`` from the moment a processing preview starts until its worker thread has finished.
+
+        Exact analogue of :attr:`is_loading` (see ADR-015): keyed on
+        ``self._processing_thread`` (cleared only once ``QThread.finished``
+        fires -- see :meth:`_on_processing_thread_finished`), never on
+        ``self._processing_state``. This is what :meth:`open_path` and
+        :meth:`_start_processing_preview` both check to enforce file-load
+        and processing mutual exclusion, and what :meth:`closeEvent` checks
+        alongside :attr:`is_loading` to decide whether a close must be
+        deferred.
+        """
+        return self._processing_thread is not None
 
     # -- construction -----------------------------------------------------
 
@@ -196,9 +264,20 @@ class MainWindow(QMainWindow):
         )
         metadata_dock.setMinimumWidth(280)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, metadata_dock)
+
+        processing_dock = QDockWidget("Processing", self)
+        processing_dock.setWidget(self._build_processing_display_widget())
+        processing_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        processing_dock.setMinimumWidth(260)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, processing_dock)
+        self.splitDockWidget(dataset_dock, processing_dock, Qt.Orientation.Vertical)
+
         self.resizeDocks([dataset_dock], [240], Qt.Orientation.Horizontal)
         self.resizeDocks([metadata_dock], [360], Qt.Orientation.Horizontal)
         self._metadata_dock = metadata_dock
+        self._processing_dock = processing_dock
 
     def _build_dataset_display_widget(self) -> QWidget:
         container = QWidget()
@@ -306,6 +385,82 @@ class MainWindow(QMainWindow):
         outer.addStretch(1)
         return container
 
+    def _build_processing_display_widget(self) -> QWidget:
+        """Sprint GUI-3A Processing dock: operation form, preview/apply/discard, history. See ADR-015."""
+        container = QWidget()
+        outer = QVBoxLayout(container)
+
+        operation_group = QGroupBox("Operation")
+        operation_form = QFormLayout(operation_group)
+        self.operation_combo = QComboBox()
+        for spec in REGISTRY:
+            self.operation_combo.addItem(spec.display_name)
+        self.operation_combo.currentIndexChanged.connect(self._on_operation_changed)
+        operation_form.addRow(self.operation_combo)
+        outer.addWidget(operation_group)
+
+        self._parameters_group = QGroupBox("Parameters")
+        self._parameters_form = QFormLayout(self._parameters_group)
+        self._parameter_widgets: dict[str, QWidget] = {}
+        outer.addWidget(self._parameters_group)
+
+        input_group = QGroupBox("Input")
+        input_form = QFormLayout(input_group)
+        input_form.addRow(QLabel("Current committed dataset"))
+        outer.addWidget(input_group)
+
+        self.preview_button = QPushButton("Preview")
+        self.preview_button.clicked.connect(self._on_preview_clicked)
+        outer.addWidget(self.preview_button)
+
+        self.processing_status_label = QLabel("No preview")
+        outer.addWidget(self.processing_status_label)
+
+        self.processing_progress_bar = QProgressBar()
+        self.processing_progress_bar.setMaximumWidth(140)
+        self.processing_progress_bar.setTextVisible(False)
+        self.processing_progress_bar.setRange(0, 0)  # indeterminate -- no real progress is available
+        self.processing_cancel_button = QPushButton("Cancel Processing")
+        self.processing_cancel_button.clicked.connect(self._on_cancel_processing_clicked)
+        self._processing_progress_widget = QWidget()
+        processing_progress_layout = QHBoxLayout(self._processing_progress_widget)
+        processing_progress_layout.setContentsMargins(0, 0, 0, 0)
+        processing_progress_layout.addWidget(self.processing_progress_bar)
+        processing_progress_layout.addWidget(self.processing_cancel_button)
+        self._processing_progress_widget.setVisible(False)
+        outer.addWidget(self._processing_progress_widget)
+
+        self.apply_preview_button = QPushButton("Apply Preview")
+        self.apply_preview_button.clicked.connect(self._on_apply_preview_clicked)
+        outer.addWidget(self.apply_preview_button)
+
+        self.discard_preview_button = QPushButton("Discard Preview")
+        self.discard_preview_button.clicked.connect(self._on_discard_preview_clicked)
+        outer.addWidget(self.discard_preview_button)
+
+        display_source_group = QGroupBox("Display source")
+        display_source_form = QFormLayout(display_source_group)
+        self.display_source_combo = QComboBox()
+        for label, _value in _DISPLAY_SOURCE_ITEMS:
+            self.display_source_combo.addItem(label)
+        self.display_source_combo.setCurrentIndex(1)  # "Current"
+        self.display_source_combo.currentIndexChanged.connect(self._on_display_source_changed)
+        display_source_form.addRow(self.display_source_combo)
+        outer.addWidget(display_source_group)
+
+        self.reset_to_raw_button = QPushButton("Reset Current to Raw")
+        self.reset_to_raw_button.clicked.connect(self._on_reset_to_raw_clicked)
+        outer.addWidget(self.reset_to_raw_button)
+
+        history_group = QGroupBox("History")
+        history_layout = QVBoxLayout(history_group)
+        self.history_list = QListWidget()
+        history_layout.addWidget(self.history_list)
+        outer.addWidget(history_group, 1)
+
+        self._rebuild_parameter_form()
+        return container
+
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self.open_action = QAction("&Open OGPR...", self)
@@ -345,6 +500,376 @@ class MainWindow(QMainWindow):
         self._load_progress_widget.setVisible(False)
         self.statusBar().addPermanentWidget(self._load_progress_widget)
 
+    # -- processing preview & apply (Sprint GUI-3A: background worker, see ADR-015) ------------------
+    #
+    # Parameter widgets below are built generically from each operation's
+    # ParameterSpec list and connected via a lambda capturing that
+    # parameter's name -- safe here (unlike the cross-thread rule in
+    # ADR-014) because every one of these signals is emitted by a widget
+    # living on the GUI main thread itself, to a slot on the same thread; a
+    # lambda only breaks Qt's receiver-thread resolution for a genuinely
+    # cross-thread (queued) connection, which none of these are.
+
+    def _rebuild_parameter_form(self) -> None:
+        """Clears and rebuilds the Parameters group for the currently-selected operation."""
+        while self._parameters_form.rowCount():
+            self._parameters_form.removeRow(0)
+        self._parameter_widgets = {}
+        spec = get_operation(self._selected_operation_id)
+        params = self._operation_params[spec.operation_id]
+        for pspec in spec.parameters:
+            widget = self._build_parameter_widget(pspec, params[pspec.name])
+            if pspec.description:
+                widget.setToolTip(pspec.description)
+            label = f"{pspec.label} ({pspec.unit})" if pspec.unit else pspec.label
+            self._parameters_form.addRow(label, widget)
+            self._parameter_widgets[pspec.name] = widget
+        self._parameters_group.setTitle(f"Parameters — {spec.display_name}")
+
+    def _build_parameter_widget(self, pspec: ParameterSpec, current_value: Any) -> QWidget:
+        if pspec.kind == "bool":
+            check = QCheckBox()
+            check.setChecked(bool(current_value))
+            check.toggled.connect(lambda checked, name=pspec.name: self._on_parameter_changed(name, checked))
+            return check
+        if pspec.kind == "choice":
+            combo = QComboBox()
+            combo.addItems(list(pspec.choices))
+            if current_value in pspec.choices:
+                combo.setCurrentIndex(pspec.choices.index(current_value))
+            combo.currentIndexChanged.connect(
+                lambda index, name=pspec.name, choices=pspec.choices: self._on_parameter_changed(
+                    name, choices[index]
+                )
+            )
+            return combo
+        if pspec.kind == "int":
+            spin = QSpinBox()
+            spin.setRange(
+                int(pspec.minimum) if pspec.minimum is not None else -2_147_483_647,
+                int(pspec.maximum) if pspec.maximum is not None else 2_147_483_647,
+            )
+            spin.setValue(int(current_value))
+            spin.valueChanged.connect(lambda value, name=pspec.name: self._on_parameter_changed(name, value))
+            return spin
+        double_spin = QDoubleSpinBox()
+        double_spin.setDecimals(4)
+        double_spin.setRange(
+            pspec.minimum if pspec.minimum is not None else -1.0e12,
+            pspec.maximum if pspec.maximum is not None else 1.0e12,
+        )
+        double_spin.setValue(float(current_value))
+        double_spin.valueChanged.connect(
+            lambda value, name=pspec.name: self._on_parameter_changed(name, value)
+        )
+        return double_spin
+
+    def _on_operation_changed(self, index: int) -> None:
+        self._selected_operation_id = REGISTRY[index].operation_id
+        if self.session.preview_dataset is not None:
+            self._discard_preview()
+        self._rebuild_parameter_form()
+        self._refresh_processing_panel()
+
+    def _on_parameter_changed(self, name: str, value: Any) -> None:
+        self._operation_params[self._selected_operation_id][name] = value
+        if self.session.preview_dataset is not None:
+            # Sprint GUI-3A scope decision (ADR-015): a parameter edit
+            # discards any existing preview outright, rather than adding a
+            # third "outdated" visual state alongside No preview/Computing/
+            # Ready/Failed.
+            self._discard_preview()
+        else:
+            self._refresh_processing_panel()
+
+    def _on_preview_clicked(self) -> None:
+        if self._close_pending or self.is_loading or self.is_processing:
+            return
+        if not self.session.is_loaded:
+            return
+        spec = get_operation(self._selected_operation_id)
+        params = dict(self._operation_params[spec.operation_id])
+        errors = spec.validate(params, self.session.current_dataset)
+        if errors:
+            self.processing_status_label.setText("Invalid parameters")
+            QMessageBox.warning(self, "Invalid parameters", "\n".join(errors))
+            return
+        self._start_processing_preview(spec, params)
+
+    def _start_processing_preview(self, spec: ProcessingOperationSpec, params: dict[str, Any]) -> None:
+        dataset = self.session.current_dataset
+        assert dataset is not None
+        valid_mask = self.session.current_valid_mask
+        base_revision = self.session.current_revision
+
+        self._current_processing_token += 1
+        token = self._current_processing_token
+        cancel_event = threading.Event()
+
+        thread = QThread(self)
+        worker = ProcessingWorker(spec, dataset, valid_mask, params, token, base_revision, cancel_event)
+        worker.moveToThread(thread)
+
+        # See ADR-014/ADR-015: connected only to bound methods of `self`,
+        # never a lambda -- this cross-thread connection is exactly the kind
+        # the lambda rule protects.
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_processing_progress)
+        worker.preview_ready.connect(self._on_processing_preview_ready)
+        worker.failed.connect(self._on_processing_failed)
+        worker.cancelled.connect(self._on_processing_cancelled)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._on_processing_thread_finished)
+        thread.finished.connect(thread.deleteLater)
+
+        self._processing_thread = thread
+        self._processing_worker = worker
+        self._processing_cancel_event = cancel_event
+        self._last_preview_outcome = None
+        self._set_processing_state(ProcessingState.RUNNING)
+        self.processing_status_label.setText(f"Running {spec.display_name}…")
+
+        thread.start()
+
+    def _on_cancel_processing_clicked(self) -> None:
+        if self._processing_state != ProcessingState.RUNNING:
+            return
+        _LOGGER.info("Processing cancellation requested by user")
+        self._request_cancel_current_processing()
+        self._set_processing_state(ProcessingState.CANCELLING)
+        self.processing_status_label.setText("Cancelling…")
+
+    def _request_cancel_current_processing(self) -> None:
+        """Set the current processing run's cancellation token directly (thread-safe, not queued).
+
+        Identical guarantee to :meth:`_request_cancel_current_load` (see
+        ADR-014): ``threading.Event.set()`` takes effect immediately
+        regardless of what the worker thread is doing.
+        """
+        if self._processing_cancel_event is not None:
+            self._processing_cancel_event.set()
+
+    # -- processing worker signal handlers (run on the main thread) ---------
+    #
+    # Every handler below first checks `token != self._current_processing_token`
+    # (stale-result rejection, identical to ADR-014's file-load guarantee),
+    # then -- only for the terminal outcomes that could lead to a commit --
+    # `base_revision != self.session.current_revision` (stale-base
+    # rejection, Sprint GUI-3A's addition, see ADR-015). Deliberately do
+    # **not** clear `self._processing_thread`/`self._processing_worker` or
+    # move to IDLE -- that only happens in `_on_processing_thread_finished`.
+
+    def _on_processing_progress(self, token: int, message: str) -> None:
+        if token != self._current_processing_token:
+            return
+        self.processing_status_label.setText(message)
+
+    def _on_processing_preview_ready(self, token: int, base_revision: int, result: ProcessingResult) -> None:
+        if token != self._current_processing_token:
+            _LOGGER.info("Discarding stale processing result (superseded by a newer request)")
+            return
+        if base_revision != self.session.current_revision:
+            # Structurally shouldn't happen -- the Processing panel is
+            # locked (Apply/Discard/Reset/a second Preview are all disabled)
+            # for the entire time `is_processing` is True, so nothing can
+            # change `current_revision` while this worker runs. Kept as a
+            # defensive, never-apply-a-stale-base guard regardless (see
+            # ADR-015) rather than relying on that lock alone.
+            _LOGGER.info("Discarding processing result computed against a superseded committed dataset")
+            self._last_preview_outcome = "cancelled"
+            self._set_processing_state(ProcessingState.CANCELLED)
+            return
+        self.session.set_preview(result.dataset, result.valid_mask)
+        _LOGGER.info("Processing preview ready: %s", result.dataset.shape)
+        self._last_preview_outcome = "success"
+        self._processing_state = ProcessingState.SUCCESS
+        self._display_source = "preview"
+        preview_index = [value for _label, value in _DISPLAY_SOURCE_ITEMS].index("preview")
+        self.display_source_combo.blockSignals(True)
+        self.display_source_combo.setCurrentIndex(preview_index)
+        self.display_source_combo.blockSignals(False)
+        self._refresh_processing_panel()
+        self._update_views()
+
+    def _on_processing_failed(
+        self, token: int, base_revision: int, short_message: str, traceback_text: str
+    ) -> None:
+        del base_revision
+        if token != self._current_processing_token:
+            return
+        _LOGGER.error("Processing failed: %s\n%s", short_message, traceback_text)
+        self._last_preview_outcome = "error"
+        self._set_processing_state(ProcessingState.ERROR)
+        QMessageBox.critical(self, "Processing failed", short_message)
+
+    def _on_processing_cancelled(self, token: int, base_revision: int) -> None:
+        del base_revision
+        if token != self._current_processing_token:
+            return
+        _LOGGER.info("Processing cancelled")
+        self._last_preview_outcome = "cancelled"
+        self._set_processing_state(ProcessingState.CANCELLED)
+
+    def _on_processing_thread_finished(self) -> None:
+        """Connected to the in-flight processing run's ``QThread.finished``.
+
+        Exact analogue of :meth:`_on_load_thread_finished` (see ADR-014/
+        ADR-015): the one place `self._processing_thread`/
+        `self._processing_worker`/`self._processing_cancel_event` are
+        cleared, deliberately never in the outcome handlers above --
+        `is_processing` therefore cannot go ``False`` (and so cannot let a
+        new load/processing job start, or a deferred close complete) until
+        the underlying OS thread has genuinely stopped.
+        """
+        self._processing_thread = None
+        self._processing_worker = None
+        self._processing_cancel_event = None
+        self._set_processing_state(ProcessingState.IDLE)
+        if self._close_pending:
+            QTimer.singleShot(0, self.close)
+
+    def _on_apply_preview_clicked(self) -> None:
+        if not self.session.has_fresh_preview:
+            return
+        self.session.apply_preview()
+        self._last_preview_outcome = None
+        self._set_display_source("current")
+
+    def _on_discard_preview_clicked(self) -> None:
+        self._discard_preview()
+
+    def _discard_preview(self) -> None:
+        self.session.discard_preview()
+        self._last_preview_outcome = None
+        if self._display_source == "preview":
+            self._set_display_source("current")
+        else:
+            self._refresh_processing_panel()
+            self._update_views()
+
+    def _on_reset_to_raw_clicked(self) -> None:
+        if self._close_pending or self.is_loading or self.is_processing:
+            return
+        if not self.session.is_loaded:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Reset Current to Raw",
+            "Discard the entire processing chain for this file and return to the raw, freshly-read data?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.session.reset_to_raw()
+        self._last_preview_outcome = None
+        self._set_display_source("current")
+
+    def _on_display_source_changed(self, index: int) -> None:
+        self._display_source = _DISPLAY_SOURCE_ITEMS[index][1]
+        self._update_views()
+        self._refresh_processing_panel()
+
+    def _set_display_source(self, source: DisplaySource) -> None:
+        """Sets :attr:`_display_source` and keeps the combo box in sync, without re-triggering its handler."""
+        self._display_source = source
+        index = [value for _label, value in _DISPLAY_SOURCE_ITEMS].index(source)
+        self.display_source_combo.blockSignals(True)
+        self.display_source_combo.setCurrentIndex(index)
+        self.display_source_combo.blockSignals(False)
+        self._refresh_processing_panel()
+        self._update_views()
+
+    def _dataset_for_display(self) -> GPRDataset | None:
+        """The dataset the B-scan/A-scan/metadata views should currently render.
+
+        Never ``self.session.dataset`` directly -- see :attr:`_display_source`.
+        Falls back to :attr:`~archaeogpr.gui.models.dataset_session.DatasetSession.current_dataset`
+        if ``"preview"`` is selected but no preview actually exists (should
+        not normally happen -- :meth:`_refresh_processing_panel` switches
+        back to ``"current"`` the moment a preview disappears -- kept as a
+        defensive fallback, never a ``None``/crash path).
+        """
+        if self._display_source == "raw":
+            return self.session.raw_dataset
+        if self._display_source == "preview" and self.session.preview_dataset is not None:
+            return self.session.preview_dataset
+        return self.session.current_dataset
+
+    def _set_processing_state(self, state: ProcessingState) -> None:
+        self._processing_state = state
+        self._refresh_processing_panel()
+
+    def _processing_status_text(self) -> str:
+        if self._processing_state == ProcessingState.RUNNING:
+            return "Computing…"
+        if self._processing_state == ProcessingState.CANCELLING:
+            return "Cancelling…"
+        if self.session.has_fresh_preview:
+            return "Ready"
+        if self._last_preview_outcome == "error":
+            return "Failed"
+        return "No preview"
+
+    def _refresh_processing_panel(self) -> None:
+        """The one place every Processing-dock widget's enabled/visible/text state is set.
+
+        Mirrors :meth:`_set_file_load_state`'s "one place" role for the
+        file-load status bar widgets.
+        """
+        busy = self._processing_state in _ACTIVE_PROCESSING_STATES
+        blocked = self._close_pending or self.is_loading
+        loaded = self.session.is_loaded
+
+        self.operation_combo.setEnabled(not busy)
+        for widget in self._parameter_widgets.values():
+            widget.setEnabled(not busy)
+
+        self.preview_button.setEnabled(loaded and not busy and not blocked)
+        self.processing_cancel_button.setEnabled(self._processing_state == ProcessingState.RUNNING)
+        self._processing_progress_widget.setVisible(busy)
+        self.processing_status_label.setText(self._processing_status_text())
+
+        self.apply_preview_button.setEnabled(not busy and self.session.has_fresh_preview)
+        self.discard_preview_button.setEnabled(not busy and self.session.preview_dataset is not None)
+        self.reset_to_raw_button.setEnabled(loaded and not busy and not blocked)
+
+        has_preview = self.session.preview_dataset is not None
+        preview_index = [value for _label, value in _DISPLAY_SOURCE_ITEMS].index("preview")
+        # A plain QComboBox's model is a QStandardItemModel at runtime (never
+        # replaced with a custom model here) -- cast() only narrows the
+        # static type so mypy sees .item(), it has no runtime effect.
+        combo_model = cast(QStandardItemModel, self.display_source_combo.model())
+        preview_item = combo_model.item(preview_index)
+        if preview_item is not None:
+            preview_item.setEnabled(has_preview)
+        if not has_preview and self._display_source == "preview":
+            self._display_source = "current"
+            current_index = [value for _label, value in _DISPLAY_SOURCE_ITEMS].index("current")
+            self.display_source_combo.blockSignals(True)
+            self.display_source_combo.setCurrentIndex(current_index)
+            self.display_source_combo.blockSignals(False)
+
+        self._refresh_history_list()
+
+    def _refresh_history_list(self) -> None:
+        self.history_list.clear()
+        dataset = self._dataset_for_display()
+        if dataset is None:
+            return
+        committed_count = (
+            len(self.session.current_dataset.processing_history) if self.session.current_dataset else 0
+        )
+        showing_preview = self._display_source == "preview"
+        for i, record in enumerate(dataset.processing_history, start=1):
+            operation = record.get("operation", "?")
+            applied_at = record.get("applied_at", "")
+            parameters = record.get("parameters", {})
+            params_text = ", ".join(f"{k}={v}" for k, v in parameters.items())
+            suffix = " -- PREVIEW, NOT APPLIED" if showing_preview and i > committed_count else ""
+            self.history_list.addItem(f"{i}. {operation}{suffix} ({applied_at})\n    {params_text}")
+
     # -- file opening (GUI-1B: background worker, see ADR-014) ---------------
 
     def _on_open_triggered(self) -> None:
@@ -371,6 +896,12 @@ class MainWindow(QMainWindow):
         previous session is only ever replaced in :meth:`_on_worker_loaded`,
         after a full, uncancelled, successful read; a failed, cancelled, or
         shutdown-rejected load leaves it completely untouched.
+
+        Also rejects a load while a processing preview is running
+        (:attr:`is_processing`) -- Sprint GUI-3A's file-load/processing
+        mutual exclusion, see ADR-015: the two background workers never run
+        at the same time, so neither ever has to reason about the other
+        touching ``self.session`` concurrently.
         """
         if self._close_pending:
             _LOGGER.info("File load ignored because application shutdown is pending.")
@@ -378,6 +909,10 @@ class MainWindow(QMainWindow):
 
         if self.is_loading:
             _LOGGER.info("Load already in progress -- rejecting new request for %s", path)
+            return
+
+        if self.is_processing:
+            _LOGGER.info("Load rejected because a processing preview is running for %s", path)
             return
 
         resolved = Path(path).resolve()
@@ -529,35 +1064,50 @@ class MainWindow(QMainWindow):
     # -- shutdown: deferred, never blocking, never forced (see ADR-014) ------
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override signature
-        """Defers window destruction until an in-flight load's worker thread has actually finished.
+        """Defers window destruction until an in-flight load/processing worker has actually finished.
 
-        Blocking OGPR parsing cannot be forcefully interrupted. Closing the
-        window requests cancellation and defers final window destruction
-        until the reader returns; the cancelled result is never committed.
-        There is no ``wait()`` here -- the window is hidden immediately (so
-        the user sees it "close"), but the ``MainWindow``/thread/worker
-        objects stay alive and the GUI event loop keeps running,
-        unblocked, until :meth:`_on_load_thread_finished` retries the
-        close. ``QThread.terminate()`` is never used.
+        Blocking OGPR parsing/processing cannot be forcefully interrupted.
+        Closing the window requests cancellation and defers final window
+        destruction until the running worker returns; the cancelled result
+        is never committed. There is no ``wait()`` here -- the window is
+        hidden immediately (so the user sees it "close"), but the
+        ``MainWindow``/thread/worker objects stay alive and the GUI event
+        loop keeps running, unblocked, until :meth:`_on_load_thread_finished`
+        / :meth:`_on_processing_thread_finished` retries the close.
+        ``QThread.terminate()`` is never used.
+
+        File loading and processing preview are mutually exclusive (see
+        ``ADR-015``), so at most one of :attr:`is_loading`/
+        :attr:`is_processing` is ever ``True`` here -- but both branches
+        below are unconditional (not ``elif``) so this stays correct even if
+        that invariant is ever relaxed later.
 
         :attr:`_close_pending` is only cleared in the branch below, once a
         close is actually being accepted -- never in
-        :meth:`_on_load_thread_finished`. This keeps the flag latched
-        continuously from the very first deferred call here through to
-        this final accepted one, with no gap in between where
-        :meth:`open_path` would see shutdown as no-longer-pending while the
-        window is still only hidden, not actually closed.
+        :meth:`_on_load_thread_finished`/:meth:`_on_processing_thread_finished`.
+        This keeps the flag latched continuously from the very first
+        deferred call here through to this final accepted one, with no gap
+        in between where :meth:`open_path`/:meth:`_on_preview_clicked` would
+        see shutdown as no-longer-pending while the window is still only
+        hidden, not actually closed.
         """
-        if not self.is_loading:
+        if not self.is_loading and not self.is_processing:
             self._close_pending = False
             super().closeEvent(event)
             return
 
-        _LOGGER.info("Window closing while a load is in progress -- deferring close until it finishes")
+        _LOGGER.info(
+            "Window closing while a background task is in progress -- deferring close until it finishes"
+        )
         self._close_pending = True
-        self._request_cancel_current_load()
-        self._set_file_load_state(FileLoadState.CANCELLING)
-        self.load_status_label.setText("Cancelling load before exit…")
+        if self.is_loading:
+            self._request_cancel_current_load()
+            self._set_file_load_state(FileLoadState.CANCELLING)
+            self.load_status_label.setText("Cancelling load before exit…")
+        if self.is_processing:
+            self._request_cancel_current_processing()
+            self._set_processing_state(ProcessingState.CANCELLING)
+            self.processing_status_label.setText("Cancelling processing before exit…")
         event.ignore()
         self.hide()
 
@@ -578,9 +1128,20 @@ class MainWindow(QMainWindow):
         self.trace_spin.blockSignals(False)
         self.trace_count_label.setText(f"/ {max(0, self.session.trace_count - 1)}")
 
+        # A new file resets the Processing panel entirely -- new raw/current/
+        # preview split (DatasetSession.commit_dataset already cleared the
+        # preview and reset current_revision to 0), so any leftover preview
+        # status text/display-source selection from a *previous* file must
+        # not linger.
+        self._last_preview_outcome = None
+        self._display_source = "current"
+        self.display_source_combo.blockSignals(True)
+        self.display_source_combo.setCurrentIndex([v for _label, v in _DISPLAY_SOURCE_ITEMS].index("current"))
+        self.display_source_combo.blockSignals(False)
+
         self.export_png_action.setEnabled(True)
         self._update_views()
-        self.metadata_panel.set_dataset(self.session.dataset, self.session.source_path)
+        self._refresh_processing_panel()
 
         name = self.session.source_path.name if self.session.source_path else "?"
         self.setWindowTitle(f"{_BASE_TITLE} — {name}")
@@ -589,7 +1150,7 @@ class MainWindow(QMainWindow):
     def _update_views(self) -> None:
         if not self.session.is_loaded:
             return
-        dataset = self.session.dataset
+        dataset = self._dataset_for_display()
         assert dataset is not None
         channel = self.session.selected_channel
         self.bscan_view.set_data(dataset, channel)
@@ -602,6 +1163,7 @@ class MainWindow(QMainWindow):
             self.bscan_view.set_selected_trace(None)
             self.ascan_view.clear()
         self._refresh_display_summary()
+        self.metadata_panel.set_dataset(dataset, self.session.source_path)
 
     def _on_channel_changed(self, value: int) -> None:
         if not self.session.is_loaded:

@@ -37,20 +37,26 @@ ve Sprint 2.2 durumları da `done` — bkz.
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]].
 
 Bunun yanında, kullanıcının ayrı isteğiyle başlayan **GUI/3D dönüşüm
-track'i** dört sprint ilerledi ve **`main`'e merge edildi** (2026-07-18,
-PR #2, merge commit `009fb9d`): **Sprint GUI-0**
+track'i** beş sprint ilerledi. **GUI-0/GUI-1/GUI-2 `main`'e merge edildi**
+(2026-07-18, PR #2, merge commit `009fb9d`); **GUI-1B `main`'e merge
+edildi** (2026-07-18, PR #3, merge commit `870f0c8`): **Sprint GUI-0**
 ([[02_SPRINTS/Sprint_GUI_0_Foundation]], done, yalnızca audit/ADR/mimari
 tasarım, kod yok), **Sprint GUI-1**
 ([[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]], done, native PySide6 viewer +
 Windows executable), **Sprint GUI-2**
 ([[02_SPRINTS/Sprint_GUI_2_Display_Controls]], done, kontrast/colormap/
-A-scan modları/PNG export, `0.2.0`), ve **Sprint GUI-1B**
+A-scan modları/PNG export, `0.2.0`), **Sprint GUI-1B**
 ([[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]], done, background
-file-loading worker, `0.2.1`). Sprint 4B (Gain, yukarıda) ile bu GUI
-track'i birbirinden bağımsız, paralel track'lerdir — biri diğerini
+file-loading worker, `0.2.1`). **Sprint GUI-3A**
+([[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]], done, 5 stabil
+processing fonksiyonu artık GUI'de non-destructive preview→apply ile
+kullanılabiliyor — undo/redo/recipe/gain/3D YOK, `0.3.0`) henüz **merge
+edilmedi**, kullanıcının onayı bekleniyor. Sprint 4B (Gain, yukarıda) ile
+bu GUI track'i birbirinden bağımsız, paralel track'lerdir — biri diğerini
 başlatmaz veya değiştirmez. Bkz.
 [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
-[[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
+[[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]],
+[[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]].
 
 ## Tamamlanan özellikler
 **Sprint 1:** OpenGPR header/preamble okuyucu, Radar Volume + Sample
@@ -263,12 +269,15 @@ bkz. Sprint 4A yukarıda,
 Hiçbiri için sahte/yarım implementasyon yok — sadece `05_PROCESSING/`
 altında gelecek için planlanan API bağlamı var (bkz.
 [[05_PROCESSING/Processing_Index]]). **GUI artık çalışan runtime koduna
-sahiptir** (native PySide6 viewer + Windows executable, `0.2.1`, bkz.
-yukarıdaki GUI-0/GUI-1/GUI-2/GUI-1B girdileri ve
-[[03_ARCHITECTURE/GUI_Architecture]]) — ancak **yalnızca view-only**:
-processing GUI'si (time-zero/DC/dewow/band-pass/background/gain),
-undo/redo, recipe, 3D/PyVista/VTK hiçbiri henüz yoktur; bu ayrım kasıtlı
-olarak korunuyor.
+sahiptir** (native PySide6 viewer + Windows executable, `0.3.0`, bkz.
+yukarıdaki GUI-0/GUI-1/GUI-2/GUI-1B/GUI-3A girdileri ve
+[[03_ARCHITECTURE/GUI_Architecture]]). **Sprint GUI-3A ile 5 stabil
+processing fonksiyonu (time-zero/DC offset/dewow/band-pass/background
+removal) artık GUI'den preview→apply ile kullanılabiliyor** (non-
+destructive, raw/current/preview ayrımı, bkz.
+[[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]) — ancak
+gain, undo/redo, recipe, processed dataset kaydetme, 3D/PyVista/VTK
+hiçbiri henüz yoktur; bu ayrım kasıtlı olarak korunuyor.
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -376,6 +385,7 @@ açık isteği olmadan BAŞLATILMAYACAK. Detay:
 [[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
-2026-07-18 (Sprint GUI-1B — background file-loading worker, `main`'e
-merge edildi, `0.2.1`; en son processing/sinyal-işleme sprinti hâlâ
-Sprint 4A Closure, 2026-07-16)
+2026-07-19 (Sprint GUI-3A — non-destructive processing preview & apply,
+`0.3.0`, henüz merge edilmedi, kullanıcının onayı bekleniyor; GUI-1B
+2026-07-18'de `main`'e merge edildi, `0.2.1`; en son processing/sinyal-
+işleme sprinti hâlâ Sprint 4A Closure, 2026-07-16)
