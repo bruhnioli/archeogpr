@@ -5,22 +5,27 @@ tags: [project-state, sprint]
 
 # Next Development Sprint — Sprint 4B / Gain (henüz tanımlanmadı)
 
-> **Not (2026-07-18 güncellemesi):** Bu belge yalnızca **Sprint 4B (Gain)**
+> **Not (2026-07-19 güncellemesi):** Bu belge yalnızca **Sprint 4B (Gain)**
 > track'ini kapsar; aşağıdaki içerik GUI sprintleriyle **değiştirilmedi**.
-> Ayrı, paralel bir GUI/3D dönüşüm track'i dört sprint ilerledi ve
-> `main`'e merge edildi (2026-07-18): **Sprint GUI-0** (tasarım/ADR, kod
-> yok), **Sprint GUI-1** (native PySide6 viewer + Windows executable),
-> **Sprint GUI-2** (display controls, `0.2.0`), **Sprint GUI-1B**
-> (background file-loading worker, `0.2.1`) — bkz.
+> Ayrı, paralel bir GUI/3D dönüşüm track'i beş sprint ilerledi:
+> **Sprint GUI-0** (tasarım/ADR, kod yok), **Sprint GUI-1** (native
+> PySide6 viewer + Windows executable), **Sprint GUI-2** (display
+> controls, `0.2.0`) — üçü `main`'e merge edildi (2026-07-18, PR #2).
+> **Sprint GUI-1B** (background file-loading worker, `0.2.1`) — `main`'e
+> merge edildi (2026-07-18, PR #3). **Sprint GUI-3A** (non-destructive
+> processing preview & apply — 5 stabil processing fonksiyonu, `0.3.0`) —
+> henüz merge edilmedi, kullanıcının onayı bekleniyor. Bkz.
 > [[02_SPRINTS/Sprint_GUI_0_Foundation]],
 > [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]],
 > [[02_SPRINTS/Sprint_GUI_2_Display_Controls]],
 > [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
-> [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]. Bu iki track
-> birbirinden bağımsızdır: GUI track'inin ilerlemesi Sprint 4B'yi
+> [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]],
+> [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
+> [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]. Bu iki
+> track birbirinden bağımsızdır: GUI track'inin ilerlemesi Sprint 4B'yi
 > BAŞLATMAZ, Sprint 4B'nin tanımsız kalması da bir sonraki GUI sprintini
-> (processing entegrasyonu veya GUI-1'in kendi TODO'su) engellemez —
-> ikisi de yalnızca kullanıcının kendi, ayrı açık isteğiyle başlar.
+> (undo/redo, recipe, veya 3D/gridding) engellemez — ikisi de yalnızca
+> kullanıcının kendi, ayrı açık isteğiyle başlar.
 
 ## Durum: Sprint 4A done (canonical policy = A0); sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
 
@@ -145,6 +150,8 @@ Ayrı, paralel GUI/3D track'i için: [[02_SPRINTS/Sprint_GUI_0_Foundation]],
 [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]],
 [[02_SPRINTS/Sprint_GUI_2_Display_Controls]],
 [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
+[[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]],
 [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
 [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]],
+[[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]],
 [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]].

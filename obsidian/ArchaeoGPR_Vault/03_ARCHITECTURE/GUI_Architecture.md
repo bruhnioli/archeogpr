@@ -13,11 +13,21 @@ type: architecture
 > aşağıda artık gerçek: bkz.
 > [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
 > [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]].
-> Registry/recipes/gridding/3D/undo-redo/processing-dialog katmanları
-> aşağıda anlatıldığı gibi hâlâ yalnızca **tasarımdır** — henüz hiçbiri
-> implemente edilmedi. Bu notun geri kalanı, hangi kısmın gerçek/hangisinin
-> hâlâ plan olduğunu ayırt etmek için değiştirilmeden bırakıldı; kesin
-> güncel durum için ilgili sprint notlarına bakın.
+> **Güncelleme (2026-07-19, Sprint GUI-3A sonrası):** "Processing engine"
+> katmanına GUI'den erişim de artık gerçek — `src/archaeogpr/gui/
+> processing/{models,registry,adapters}.py` (registry + adapter, Qt import
+> yok) ve `gui/workers/processing_worker.py`, 5 stabil processing
+> fonksiyonunu (time-zero/DC offset/dewow/band-pass/background removal)
+> non-destructive preview→apply akışıyla bağlıyor — bkz.
+> [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]],
+> [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]].
+> Recipes/gridding/3D/undo-redo katmanları aşağıda anlatıldığı gibi hâlâ
+> yalnızca **tasarımdır** — henüz implemente edilmedi (processing
+> registry'nin OperationSpec kısmı GUI-3A'da gerçekleşti, ama undo/redo
+> stack ve recipe sistemi HENÜZ YOK — bkz. ADR-015 Alternatives
+> Considered). Bu notun geri kalanı, hangi kısmın gerçek/hangisinin hâlâ
+> plan olduğunu ayırt etmek için değiştirilmeden bırakıldı; kesin güncel
+> durum için ilgili sprint notlarına bakın.
 
 ## Amaç
 
@@ -129,3 +139,5 @@ olduğu için (bkz. ADR-001) snapshot'lar referans paylaşabilir, GPRPy'nin
 - [[02_SPRINTS/Sprint_GUI_2_Display_Controls]]
 - [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]]
 - [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]
+- [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]
+- [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]

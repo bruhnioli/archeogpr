@@ -422,17 +422,30 @@ of them.
 
 **ArchaeoGPR now has a native PySide6 Windows desktop viewer** (Sprint
 GUI-1, 2026-07-17; display controls added in Sprint GUI-2; background file
-loading added in Sprint GUI-1B; current version `0.2.1`) alongside the
-CLI — a real Windows application, not a webpage: it never opens a browser
-tab, never listens on `localhost`, and never uses
-Flask/FastAPI/Streamlit/Dash/Electron. **This version is view-only** —
-B-scan/A-scan display, non-destructive display controls, responsive
-background file loading, metadata, and PNG export only. No processing
-(time-zero/DC/dewow/band-pass/background/gain), no undo/redo, no 3D — see
-[Not yet implemented](#not-yet-implemented) and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md).
-Those are planned for later, separately-requested sprints (see
+loading added in Sprint GUI-1B; non-destructive processing preview & apply
+added in Sprint GUI-3A; current version `0.3.0`) alongside the CLI — a
+real Windows application, not a webpage: it never opens a browser tab,
+never listens on `localhost`, and never uses
+Flask/FastAPI/Streamlit/Dash/Electron. **Processing is preview-only, never
+destructive** — see [Not yet implemented](#not-yet-implemented) and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md)
+for exactly what this does and does not include: no gain, no undo/redo
+stack, no recipe system, no processed-dataset save, no 3D. Those remain
+planned for later, separately-requested sprints (see
 [obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md](obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md)).
+
+**Sprint GUI-3A (`0.3.0`) non-destructive processing preview & apply** —
+five already-stable, already-tested `processing/*.py` functions
+(time-zero correction, DC offset correction, dewow, band-pass filtering,
+background removal) can now be run from a Processing dock: **Preview**
+computes a result on a background thread without touching the displayed
+dataset; **Apply Preview** atomically commits it only when the user
+explicitly asks; **Discard Preview** and **Reset Current to Raw** are
+always available. A raw/current/preview split
+(`archaeogpr.gui.models.dataset_session.DatasetSession`) keeps the
+original file's data untouched no matter how many operations are
+previewed or applied. See
+[ADR-015](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply.md).
 
 **Sprint GUI-1B (`0.2.1`) responsive file loading** — opening a `.ogpr`
 file no longer freezes the window: the read happens on a background
@@ -440,6 +453,8 @@ file no longer freezes the window: the read happens on a background
 [ADR-014](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy.md)),
 with a progress indicator, a Cancel button, and a strict guarantee that a
 cancelled or failed load never touches the currently-displayed dataset.
+File loading and processing preview are mutually exclusive (neither can
+start while the other is running).
 
 **Sprint GUI-2 (`0.2.0`) display features** — every one of these only
 changes how the same, unmodified `dataset.amplitudes` is *rendered*; none
@@ -505,14 +520,18 @@ Raw `.ogpr` files are opened read-only exactly as they are by the CLI (see
 you open, verified by SHA-256 before/after in
 [obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md),
 [obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md),
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md),
 and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md).
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md) —
+this holds regardless of how many processing operations are previewed or
+applied in-memory.
 
 Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy.md`,
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
@@ -522,11 +541,13 @@ Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_0_Foundation.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1_Viewer_Shell.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md`,
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md`.
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md`.
 
 The `io`, `model`, `processing`, `qc`, `export` packages and the CLI
 documented above are **unchanged** by the GUI — it is a new consumer of
-those existing, unmodified readers, not a rewrite of them.
+those existing, unmodified functions (via a thin adapter layer, see
+ADR-015), not a rewrite of them.
 
 ## Not yet implemented
 
@@ -536,11 +557,13 @@ fake-working code exists for them:
 gain, AGC, F-K filtering, velocity analysis, migration, Hilbert envelope,
 depth slices, anomaly detection, archaeological classification, Blender
 export, GIS export, trace-by-trace (per-trace-independent) automatic
-time-zero warping, sub-sample shifting. **GUI**: a view-only native
-Windows viewer (B-scan/A-scan/metadata) is implemented — see
-[GUI (native Windows desktop viewer)](#gui-native-windows-desktop-viewer)
-— but processing dialogs, undo/redo, recipes, and any 3D/depth view are
-not, and are planned for later, separately-requested sprints.
+time-zero warping, sub-sample shifting. **GUI**: a native Windows viewer
+(B-scan/A-scan/metadata) with non-destructive processing preview & apply
+(time-zero/DC offset/dewow/band-pass/background removal — see
+[GUI (native Windows desktop viewer)](#gui-native-windows-desktop-viewer))
+is implemented — but gain, an undo/redo stack, a recipe system, saving a
+processed dataset to a file, and any 3D/depth view are not, and remain
+planned for later, separately-requested sprints.
 
 **Background-removal algorithms are implemented as Sprint 4A candidates,
 but no candidate has been selected as canonical** — see
