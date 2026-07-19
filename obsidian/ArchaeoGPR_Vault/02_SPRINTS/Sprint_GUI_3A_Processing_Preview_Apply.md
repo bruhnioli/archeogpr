@@ -318,8 +318,12 @@ işini de güvenle erteliyor. 48 yeni test + mevcut 74 GUI testi (toplam
 122) ve 318 çekirdek test tamamen yeşil. Test yazım sürecinde bulunan tek
 gerçek sorun (aynı operation'ı reprocessing guard'ına takılacak şekilde
 iki kez çalıştıran bir test + mock'suz modal dialog) üretim kodunda değil
-testin kendisindeydi ve düzeltildi. **Commit/push henüz yapılmadı** —
-kullanıcının onayı bekleniyor.
+testin kendisindeydi ve düzeltildi. **Manual visual acceptance kullanıcı
+tarafından tamamlandı. Sprint implementasyonu commit edildi** — feature
+commit `6050c076867d711ee713b75b3e554f2e818f8f3e`, branch
+`origin/sprint-gui-3a-processing-preview-apply`'a push edildi. **Pull
+Request ve CI doğrulaması kalan gate'lerdir. `main`'e merge henüz
+gerçekleşmedi.**
 
 ## Next Sprint Recommendation
 
