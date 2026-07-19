@@ -19,15 +19,17 @@ tags: [sprint]
 | GUI-2 | Display Controls & Interaction (kontrast/percentile/colormap/A-scan modları, metadata okunabilirliği, PNG export, `0.2.0`) — veri işleme YOK | ✅ done | [[Sprint_GUI_2_Display_Controls]] |
 | GUI-1B | Background Tasks & Responsive File Loading (QThread worker, progress/Cancel UI, kooperatif iptal, atomik session commit, `0.2.1`) — veri işleme YOK | ✅ done | [[Sprint_GUI_1B_Background_Tasks]] |
 | GUI-3A | Non-Destructive Processing Preview & Apply (5 stabil processing fonksiyonu: time-zero/DC offset/dewow/band-pass/background removal — preview→apply, raw/current/preview ayrımı, `0.3.0`) — undo/redo/recipe/gain/3D YOK | ✅ done | [[Sprint_GUI_3A_Processing_Preview_Apply]] |
+| 3D-0 | Survey Geometry Inspector and C-scan Readiness (Qt-free `archaeogpr.geometry` paketi, alan-bazlı provenance, index/local/global koordinat çözümü, 5 readiness gate, Survey Geometry dock + override formu, 2D Plan View, geometry report JSON export, `0.4.0`) — volume render/PyVista/gerçek C-scan YOK | ✅ done | [[Sprint_3D_0_Survey_Geometry_Inspector]] |
 
 GUI-0/GUI-1/GUI-2 `main`'e merge edildi (2026-07-18, PR #2, merge commit
 `009fb9d`). GUI-1B `main`'e merge edildi (2026-07-18, PR #3, merge commit
-`870f0c8`). GUI-3A henüz merge edilmedi (kullanıcının onayı bekleniyor).
+`870f0c8`). GUI-3A `main`'e merge edildi (2026-07-19, PR #4, merge commit
+`f3e516c`). 3D-0 henüz merge edilmedi (kullanıcının onayı bekleniyor).
 Sprint 4B (Gain veya başka bir kapsam) henüz TANIMLANMADI — bkz.
 [[01_PROJECT_STATE/02_Next_Development_Sprint]]. GUI track'i, Sprint 4B
 ile aynı şey DEĞİLDİR ve onu başlatmaz — ayrı, paralel bir track'tir
 (GUI/3D dönüşümü). Bir sonraki GUI sprinti (undo/redo, recipe, veya
-3D/gridding) yalnızca kullanıcının ayrı, açık onayıyla başlar.
+gridding/volume render) yalnızca kullanıcının ayrı, açık onayıyla başlar.
 
 Yeni sprint notu oluştururken [[Template_Sprint]] şablonunu kullanın.
 

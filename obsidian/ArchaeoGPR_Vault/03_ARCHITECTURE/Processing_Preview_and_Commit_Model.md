@@ -27,6 +27,21 @@ type: architecture
 > adım geri alınabilir bir history listesi/cursor YOK. Bu notun geri
 > kalanı, hangi kısmın gerçek/hangisinin hâlâ plan olduğunu ayırt etmek
 > için değiştirilmeden bırakıldı.
+>
+> **Güncelleme (2026-07-19, Sprint 3D-0 sonrası):** Yeni bir
+> `GeometrySession` (`src/archaeogpr/gui/models/geometry_session.py`)
+> eklendi, ama bu belgedeki `DatasetSession`/raw-current-preview modelinin
+> bir **parçası değil** — kasıtlı olarak ayrı, bağımsız bir oturum
+> durumu. Geometri yalnızca başarılı bir dosya yüklemesinde bir kez
+> resolve edilir; aşağıdaki hiçbir preview/apply/discard/reset-to-raw
+> geçişi geometriyi asla yeniden çözmez veya değiştirmez (bu 5 processing
+> operasyonundan hiçbiri trace/channel sayısını değiştirmediği için).
+> Geometri override'ının kendi `Apply Geometry`'si yalnızca
+> `GeometrySession`'ın kendi `geometry_revision`'ını artırır —
+> `DatasetSession.current_revision`'a asla dokunmaz — ve `processing_
+> history`'ye asla yazılmaz. Detay:
+> [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
+> [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]].
 
 ## Amaç
 
@@ -166,3 +181,5 @@ NPZ/JSON'a yapılır (mevcut `export/processed.py`,
 - [[02_SPRINTS/Sprint_GUI_0_Foundation]]
 - [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]
 - [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]
+- [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
+- [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]
