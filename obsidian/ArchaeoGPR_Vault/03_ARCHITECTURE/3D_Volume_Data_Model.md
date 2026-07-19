@@ -2,12 +2,105 @@
 type: architecture
 ---
 
-# 3D Volume Data Model (tasarım — henüz implemente edilmedi)
+# 3D Volume Data Model (tasarım — gridding/volume henüz implemente edilmedi)
 
 > **Durum:** Tasarım belgesi. `src/archaeogpr/gridding/` henüz yoktur.
 > Bu not, gelecekteki Sprint 3D-1/3D-2'nin üzerine inşa edeceği veri
 > modelini ve aşama ayrımını tanımlar — bkz.
 > [[02_SPRINTS/Sprint_GUI_0_Foundation]].
+>
+> **Güncelleme (2026-07-19, Sprint 3D-0 sonrası):** Aşağıdaki "Aşama 1:
+> Geometry validation"ın (ve kısmen Aşama 2: Coordinate system'in) kapsadığı
+> alan artık gerçek runtime koduyla mevcut — ama planlanan
+> `src/archaeogpr/gridding/` paketinin bir parçası olarak DEĞİL, ayrı,
+> bağımsız bir Qt-free paket olarak: `src/archaeogpr/geometry/{models,
+> resolve,validation,export,summary}.py`. `resolve_survey_geometry()`
+> aşağıdaki `compute_trace_spacing()`'i (Aşama 1'de zaten planlanan
+> yeniden-kullanım) çağırıyor, index/local-metric/global-projected
+> koordinat seviyelerini çözüyor, ve her alanın provenance'ını
+> (`FILE_METADATA`/`DERIVED`/`USER_SUPPLIED`/`INDEX_SPACE`/`MISSING`) ayrı
+> ayrı kaydediyor. **Önemli fark:** aşağıdaki `GeometryDiagnostics` taslağı
+> tek bir `can_build_volume: bool` + `rejection_reason: str | None`
+> öngörüyordu; Sprint 3D-0 bunun yerine **beş ayrı, yapılandırılmış
+> readiness gate'i** üretti (`index_view_ready`, `local_cscan_ready`,
+> `global_cscan_ready`, `time_volume_ready`, `depth_volume_ready` — her
+> biri kendi `ready`/`blocking_issues`/`warnings` üçlüsüyle), çünkü farklı
+> downstream tüketicilerin (index-only görünüm, yerel C-scan, global
+> C-scan, zaman-hacmi, derinlik-hacmi) gereksinimleri birbirinden farklı.
+> **Bir sonraki gridding/3D sprinti, aşağıdaki `GeometryDiagnostics`
+> taslağını sıfırdan implemente ETMEMELİ** — bunun yerine
+> `archaeogpr.geometry.resolve_survey_geometry()`'nin ürettiği
+> `GeometryResolution`/`ReadinessGates`'i girdi olarak kullanmalı. Aşama
+> 3-10 (kanal/profil konumlarından resample'a, missing-mask'e, time/depth
+> hacmine kadar) **hâlâ yalnızca tasarımdır** — hiçbiri implemente
+> edilmedi; bu sprint kasıtlı olarak hacim/gridding üretmedi. Detay:
+> [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
+> [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]].
+>
+> **Güncelleme (2026-07-19, commit-öncesi audit):** Gelecekteki bir
+> gridding sprinti için iki kritik sözleşme netleştirildi. **(1) Gerçek
+> grid ile idealize edilmiş rectilinear grid farklıdır**: `SurveyGeometry.
+> x_coordinates`/`y_coordinates` (gerçek per-(trace,channel) koordinatlar,
+> mevcutsa `FILE_METADATA`) ile `along_track_coordinates`/`cross_track_
+> offsets`'ten kurulan idealize edilmiş rectilinear grid (`DERIVED`) ASLA
+> birbirinin yerine geçmez — bir sonraki sprint, "gridding" için hangisini
+> kullandığını açıkça seçmeli. `archaeogpr.geometry.regularity.assess_
+> grid_regularity()` ikisi arasındaki uyumu ölçüyor (bkz. ADR-016
+> Addendum) — tek bir global azimuth/spacing'in gerçek, GPS-tetiklemeli
+> bir hattı tam temsil ETMEDİĞİ ampirik olarak doğrulandı (gerçek dosyada
+> nokta-bazlı residual 38 cm'ye çıkıyor, şekil istatistikleri mükemmel
+> olmasına rağmen) — bir sonraki sprint bu bulguyu görmezden gelip
+> idealize gridi "gerçek konum" olarak kullanmamalı. **(2) C-scan grid
+> sözleşmesi**: `x_coordinates`/`y_coordinates` şekli `dataset.amplitudes`in
+> ilk iki ekseniyle birebir aynıdır (`(trace_count, channel_count)`,
+> C-order) — `amplitudes.reshape(trace_count*channel_count, samples_count)`
+> ile aynı flatten sırasını kullanan bir gridding kodu, `x_coordinates.
+> flatten(order="C")` ile aynı flat-index eşlemesini güvenle varsayabilir
+> (testle doğrulandı: `test_c_order_flatten_mapping_matches_trace_channel_
+> indices`). **(3) CRS hâlâ doğrulanmadı** (ISSUE-001 açık) — bir sonraki
+> sprint global koordinatları gerçek dünya konumlarıyla ilişkilendirmeden
+> önce bunu ele almalı veya en azından `SurveyGeometry.crs_validation_
+> status`'un asla `VALIDATED` olmadığını kontrol etmeli.
+
+> **Güncelleme 2 (2026-07-19, commit-öncesi audit turu 2 — regularity
+> model inceliği):** Yukarıdaki (1) numaralı maddede bahsedilen "gerçek
+> grid ile idealize rectilinear grid arasındaki uyum" artık tek bir
+> `is_regular` boolean'ı DEĞİL, birbirinden bağımsız dört ayrı alan
+> (`GridRegularity.sampling_regular`, `direction_consistent`,
+> `rectilinear_fit_acceptable`, `actual_point_grid_available`) olarak
+> modelleniyor — "düzenli örneklenmiş" (adım uzunlukları/kanal aralığı
+> sabit) ile "tek-origin/tek-azimuth rectilinear yeniden inşaya uyuyor"
+> AYNI ŞEY DEĞİL: gerçek dosyada örnekleme mükemmel (adım uzunluğu
+> CV=%2.34, kanal aralığı CV=%0.008, yön std=1.74°) olduğu halde
+> rectilinear fit residual'ı 38.17 cm'ye (~5.09× kanal aralığı) çıkıyor.
+> Ayrıntı için bkz. ADR-016 Addendum 2. Bir sonraki gridding sprinti bu
+> ayrımı KORUMALI — "örnekleme düzenli" sonucunu "rectilinear gridleme
+> güvenli" anlamına gelecek şekilde yorumlamamalı.
+>
+> Buna bağlı olarak **readiness gate'leri 5'ten 7'ye çıktı**:
+> `local_cscan_ready` → `local_parameter_grid_ready` olarak yeniden
+> adlandırıldı (yalnızca türetilmiş s/c parametre-gridi hakkında);
+> yeni `rectilinear_cscan_ready` (türetilmiş grid VE gerçek grid varsa
+> rectilinear fit + sampling regularity birlikte sağlanmalı) ve yeni
+> `actual_xy_point_grid_ready` (yalnızca gerçek X/Y noktalarının var
+> olup olmadığına bakar, rectilinearity'den bağımsız) eklendi;
+> `global_cscan_ready` artık yalnızca `actual_xy_point_grid_ready` +
+> CRS bilgisinden türetiliyor (asla bir rectilinearity iddiası
+> içermiyor); `time_volume_ready` artık `rectilinear_cscan_ready`'ye
+> bağlı. **Bir sonraki gridding/volume sprinti bu 7 gate'i olduğu gibi
+> tüketmeli, kendi ad-hoc regularity kontrolünü icat etmemeli** —
+> özellikle "rectilinear C-scan" ile "gerçek nokta-gridi C-scan"
+> arasında hangi gate'in hangi yolu temsil ettiğini karıştırmamalı.
+>
+> Son olarak, tek bir `footprint_area_m2` alanı **üç ayrı, açıkça
+> adlandırılmış alana** ayrıldı: `rectilinear_parameter_grid_area_m2`
+> (yalnızca rectilinear fit kabul edilebilirse raporlanır),
+> `approximate_ribbon_area_m2` (gerçek path uzunluğu × nominal genişlik,
+> her zaman yaklaşık olduğu uyarısıyla) ve `actual_polygon_area_m2`
+> (shoelace formülüyle gerçek grid sınırından, ribbon tahminiyle 3
+> kat'tan fazla uyuşmazlık varsa raporlanmaz). Bir sonraki sprint hangi
+> alanı hangi amaçla kullanacağını (ör. rapor, görselleştirme, dışa
+> aktarım) açıkça seçmeli — üçünü birbirinin yerine kullanmamalı.
 
 ## Amaç
 
@@ -112,3 +205,5 @@ raporlandığını doğrulamak için). Bkz.
 - [[09_REFERENCES/GPRPy_Reference_and_License_Notes]]
 - [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
 - [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]]
+- [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
+- [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]

@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
     QMessageBox,
@@ -66,6 +67,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from archaeogpr.geometry import CrossTrackDirection
+from archaeogpr.geometry.export import export_geometry_report
 from archaeogpr.gui.export import export_bscan_png, write_display_sidecar
 from archaeogpr.gui.models.dataset_session import DatasetSession
 from archaeogpr.gui.models.display_settings import (
@@ -74,11 +77,14 @@ from archaeogpr.gui.models.display_settings import (
     DisplaySettings,
     default_display_settings,
 )
+from archaeogpr.gui.models.geometry_session import GeometrySession
 from archaeogpr.gui.processing.models import ParameterSpec, ProcessingOperationSpec
 from archaeogpr.gui.processing.registry import REGISTRY, get_operation
 from archaeogpr.gui.views.ascan_view import AScanView
 from archaeogpr.gui.views.bscan_view import BScanView
+from archaeogpr.gui.views.geometry_panel import GeometryPanel
 from archaeogpr.gui.views.metadata_panel import MetadataPanel
+from archaeogpr.gui.views.plan_view import PlanView
 from archaeogpr.gui.workers.file_loader import FileLoadState, FileLoadWorker
 from archaeogpr.gui.workers.processing_worker import ProcessingState, ProcessingWorker
 from archaeogpr.model.dataset import GPRDataset
@@ -108,6 +114,13 @@ _DISPLAY_SOURCE_ITEMS: tuple[tuple[str, DisplaySource], ...] = (
     ("Preview", "preview"),
 )
 
+_CROSS_TRACK_DIRECTION_ITEMS: tuple[tuple[str, CrossTrackDirection | None], ...] = (
+    ("Unknown", None),
+    ("Right / starboard", CrossTrackDirection.CHANNEL_ASCENDING_RIGHT),
+    ("Left / port", CrossTrackDirection.CHANNEL_ASCENDING_LEFT),
+)
+_GEOMETRY_OVERRIDE_RANGE = 1.0e9  # generous bound for origin/spacing overrides
+
 
 class _PaddedSpinBox(QSpinBox):
     """A QSpinBox that zero-pads its display (e.g. ``05`` not ``5``) -- never truncates."""
@@ -126,6 +139,7 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.session = DatasetSession()
+        self.geometry_session = GeometrySession()
         self.display_settings = DisplaySettings()
         self.setWindowTitle(_BASE_TITLE)
         self.resize(1280, 800)
@@ -188,6 +202,7 @@ class MainWindow(QMainWindow):
         self._sync_controls_from_settings()
         self._set_file_load_state(FileLoadState.IDLE)  # a fresh QPushButton defaults to enabled otherwise
         self._set_processing_state(ProcessingState.IDLE)
+        self._refresh_geometry_panel()  # same reason -- disables the override form/buttons/export by default
 
     @property
     def is_loading(self) -> bool:
@@ -274,10 +289,33 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, processing_dock)
         self.splitDockWidget(dataset_dock, processing_dock, Qt.Orientation.Vertical)
 
+        geometry_dock = QDockWidget("Survey Geometry", self)
+        geometry_dock.setWidget(self._build_geometry_display_widget())
+        geometry_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        geometry_dock.setMinimumWidth(320)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, geometry_dock)
+        self.splitDockWidget(metadata_dock, geometry_dock, Qt.Orientation.Vertical)
+
+        self.plan_view = PlanView()
+        plan_view_dock = QDockWidget("Plan View", self)
+        plan_view_dock.setWidget(self.plan_view)
+        plan_view_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        plan_view_dock.setMinimumHeight(180)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, plan_view_dock)
+        self.plan_view.pointClicked.connect(self._on_plan_point_clicked)
+        self.plan_view.pointHovered.connect(self._on_plan_point_hovered)
+
         self.resizeDocks([dataset_dock], [240], Qt.Orientation.Horizontal)
         self.resizeDocks([metadata_dock], [360], Qt.Orientation.Horizontal)
+        self.resizeDocks([plan_view_dock], [220], Qt.Orientation.Vertical)
         self._metadata_dock = metadata_dock
         self._processing_dock = processing_dock
+        self._geometry_dock = geometry_dock
+        self._plan_view_dock = plan_view_dock
 
     def _build_dataset_display_widget(self) -> QWidget:
         container = QWidget()
@@ -461,6 +499,100 @@ class MainWindow(QMainWindow):
         self._rebuild_parameter_form()
         return container
 
+    def _build_geometry_display_widget(self) -> QWidget:
+        """Sprint 3D-0 Survey Geometry dock: read-only info tree + override form. See ADR-016."""
+        container = QWidget()
+        outer = QVBoxLayout(container)
+
+        self.geometry_panel = GeometryPanel()
+        outer.addWidget(self.geometry_panel, 1)
+
+        override_group = QGroupBox("Override")
+        override_form = QFormLayout(override_group)
+
+        self.geometry_trace_spacing_spin = QDoubleSpinBox()
+        self.geometry_trace_spacing_spin.setDecimals(6)
+        self.geometry_trace_spacing_spin.setRange(0.0, _GEOMETRY_OVERRIDE_RANGE)
+        self.geometry_trace_spacing_spin.setSpecialValueText("(not set)")
+        self.geometry_trace_spacing_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("trace_spacing_m", value or None)
+        )
+        override_form.addRow("Trace spacing, m", self.geometry_trace_spacing_spin)
+
+        self.geometry_channel_spacing_spin = QDoubleSpinBox()
+        self.geometry_channel_spacing_spin.setDecimals(6)
+        self.geometry_channel_spacing_spin.setRange(0.0, _GEOMETRY_OVERRIDE_RANGE)
+        self.geometry_channel_spacing_spin.setSpecialValueText("(not set)")
+        self.geometry_channel_spacing_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("channel_spacing_m", value or None)
+        )
+        override_form.addRow("Channel spacing, m", self.geometry_channel_spacing_spin)
+
+        self.geometry_channel_zero_offset_spin = QDoubleSpinBox()
+        self.geometry_channel_zero_offset_spin.setDecimals(6)
+        self.geometry_channel_zero_offset_spin.setRange(-_GEOMETRY_OVERRIDE_RANGE, _GEOMETRY_OVERRIDE_RANGE)
+        self.geometry_channel_zero_offset_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("channel_zero_offset_m", value)
+        )
+        override_form.addRow("Channel zero offset, m", self.geometry_channel_zero_offset_spin)
+
+        self.geometry_origin_x_spin = QDoubleSpinBox()
+        self.geometry_origin_x_spin.setDecimals(4)
+        self.geometry_origin_x_spin.setRange(-_GEOMETRY_OVERRIDE_RANGE, _GEOMETRY_OVERRIDE_RANGE)
+        self.geometry_origin_x_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("origin_x", value)
+        )
+        override_form.addRow("Origin Easting/X", self.geometry_origin_x_spin)
+
+        self.geometry_origin_y_spin = QDoubleSpinBox()
+        self.geometry_origin_y_spin.setDecimals(4)
+        self.geometry_origin_y_spin.setRange(-_GEOMETRY_OVERRIDE_RANGE, _GEOMETRY_OVERRIDE_RANGE)
+        self.geometry_origin_y_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("origin_y", value)
+        )
+        override_form.addRow("Origin Northing/Y", self.geometry_origin_y_spin)
+
+        self.geometry_azimuth_spin = QDoubleSpinBox()
+        self.geometry_azimuth_spin.setDecimals(3)
+        self.geometry_azimuth_spin.setRange(-360.0, 360.0)
+        self.geometry_azimuth_spin.valueChanged.connect(
+            lambda value: self._on_geometry_override_changed("azimuth_deg", value)
+        )
+        override_form.addRow("Azimuth, deg clockwise from north", self.geometry_azimuth_spin)
+
+        self.geometry_cross_track_combo = QComboBox()
+        for label, _value in _CROSS_TRACK_DIRECTION_ITEMS:
+            self.geometry_cross_track_combo.addItem(label)
+        self.geometry_cross_track_combo.currentIndexChanged.connect(self._on_geometry_cross_track_changed)
+        override_form.addRow("Channel ascending direction", self.geometry_cross_track_combo)
+
+        self.geometry_crs_edit = QLineEdit()
+        self.geometry_crs_edit.setPlaceholderText("EPSG:<code>")
+        self.geometry_crs_edit.textChanged.connect(
+            lambda text: self._on_geometry_override_changed("crs_identifier", text or None)
+        )
+        override_form.addRow("CRS identifier", self.geometry_crs_edit)
+
+        outer.addWidget(override_group)
+
+        self.geometry_validation_label = QLabel("")
+        self.geometry_validation_label.setWordWrap(True)
+        outer.addWidget(self.geometry_validation_label)
+
+        self.geometry_apply_button = QPushButton("Apply Geometry")
+        self.geometry_apply_button.clicked.connect(self._on_apply_geometry_clicked)
+        outer.addWidget(self.geometry_apply_button)
+
+        self.geometry_discard_button = QPushButton("Discard Overrides")
+        self.geometry_discard_button.clicked.connect(self._on_discard_geometry_overrides_clicked)
+        outer.addWidget(self.geometry_discard_button)
+
+        self.geometry_reset_button = QPushButton("Reset Geometry to File Metadata")
+        self.geometry_reset_button.clicked.connect(self._on_reset_geometry_clicked)
+        outer.addWidget(self.geometry_reset_button)
+
+        return container
+
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self.open_action = QAction("&Open OGPR...", self)
@@ -473,6 +605,11 @@ class MainWindow(QMainWindow):
         self.export_png_action.setEnabled(False)
         self.export_png_action.triggered.connect(self._on_export_png_triggered)
         file_menu.addAction(self.export_png_action)
+
+        self.export_geometry_action = QAction("Export &Geometry Report...", self)
+        self.export_geometry_action.setEnabled(False)
+        self.export_geometry_action.triggered.connect(self._on_export_geometry_report_triggered)
+        file_menu.addAction(self.export_geometry_action)
 
     def _build_status_bar(self) -> None:
         self.selected_label = QLabel("No file open")
@@ -870,6 +1007,162 @@ class MainWindow(QMainWindow):
             suffix = " -- PREVIEW, NOT APPLIED" if showing_preview and i > committed_count else ""
             self.history_list.addItem(f"{i}. {operation}{suffix} ({applied_at})\n    {params_text}")
 
+    # -- Survey Geometry (Sprint 3D-0, see ADR-016) --------------------------
+    #
+    # Geometry resolution (`resolve_survey_geometry`) is a fast, synchronous,
+    # pure-Python computation on already-in-memory arrays -- unlike file
+    # loading/processing, it never needs its own QThread/worker/cancel-token
+    # state machine. `self.geometry_session` is independent of
+    # `self.session`'s raw/current/preview split: it is (re)resolved only in
+    # `_refresh_for_new_dataset` (a new file), never on preview/apply/
+    # discard/reset-to-raw, because none of the five registered processing
+    # operations change the trace or channel count.
+
+    def _on_geometry_override_changed(self, field_name: str, value: object) -> None:
+        self.geometry_session.stage_override(**{field_name: value})
+        self.geometry_validation_label.setText("")
+
+    def _on_geometry_cross_track_changed(self, index: int) -> None:
+        direction = _CROSS_TRACK_DIRECTION_ITEMS[index][1]
+        self.geometry_session.stage_override(cross_track_direction=direction)
+        self.geometry_validation_label.setText("")
+
+    def _on_apply_geometry_clicked(self) -> None:
+        if self._close_pending or self.is_loading or self.is_processing:
+            return
+        if not self.session.is_loaded:
+            return
+        dataset = self.session.raw_dataset
+        assert dataset is not None
+        errors = self.geometry_session.apply_overrides(dataset)
+        if errors:
+            self.geometry_validation_label.setText("\n".join(errors))
+            return
+        self.geometry_validation_label.setText("")
+        self._refresh_geometry_panel()
+
+    def _on_discard_geometry_overrides_clicked(self) -> None:
+        self.geometry_session.discard_pending_overrides()
+        self.geometry_validation_label.setText("")
+        self._sync_geometry_override_form()
+
+    def _on_reset_geometry_clicked(self) -> None:
+        if self._close_pending or self.is_loading or self.is_processing:
+            return
+        if not self.session.is_loaded:
+            return
+        dataset = self.session.raw_dataset
+        assert dataset is not None
+        self.geometry_session.reset_to_file_metadata(dataset)
+        self.geometry_validation_label.setText("")
+        self._sync_geometry_override_form()
+        self._refresh_geometry_panel()
+
+    def _sync_geometry_override_form(self) -> None:
+        """Reflect pending geometry overrides in every form widget, without re-triggering their handlers."""
+        overrides = self.geometry_session.pending_overrides
+        widgets = (
+            self.geometry_trace_spacing_spin,
+            self.geometry_channel_spacing_spin,
+            self.geometry_channel_zero_offset_spin,
+            self.geometry_origin_x_spin,
+            self.geometry_origin_y_spin,
+            self.geometry_azimuth_spin,
+            self.geometry_cross_track_combo,
+            self.geometry_crs_edit,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
+        try:
+            self.geometry_trace_spacing_spin.setValue(overrides.trace_spacing_m or 0.0)
+            self.geometry_channel_spacing_spin.setValue(overrides.channel_spacing_m or 0.0)
+            self.geometry_channel_zero_offset_spin.setValue(overrides.channel_zero_offset_m or 0.0)
+            self.geometry_origin_x_spin.setValue(overrides.origin_x or 0.0)
+            self.geometry_origin_y_spin.setValue(overrides.origin_y or 0.0)
+            self.geometry_azimuth_spin.setValue(overrides.azimuth_deg or 0.0)
+            direction_index = [value for _label, value in _CROSS_TRACK_DIRECTION_ITEMS].index(
+                overrides.cross_track_direction
+            )
+            self.geometry_cross_track_combo.setCurrentIndex(direction_index)
+            self.geometry_crs_edit.setText(overrides.crs_identifier or "")
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+
+    def _refresh_geometry_panel(self) -> None:
+        """The one place every Survey Geometry dock widget's enabled/visible state is set.
+
+        Only the override form/Apply/Discard/Reset/export are gated on
+        busy-state -- the read-only info tree and the Plan View (including
+        its trace/channel selection sync) stay usable while processing is
+        running, per Sprint 3D-0's own interaction rules.
+        """
+        blocked = self._close_pending or self.is_loading or self.is_processing
+        loaded = self.session.is_loaded
+
+        for widget in (
+            self.geometry_trace_spacing_spin,
+            self.geometry_channel_spacing_spin,
+            self.geometry_channel_zero_offset_spin,
+            self.geometry_origin_x_spin,
+            self.geometry_origin_y_spin,
+            self.geometry_azimuth_spin,
+            self.geometry_cross_track_combo,
+            self.geometry_crs_edit,
+            self.geometry_apply_button,
+            self.geometry_discard_button,
+            self.geometry_reset_button,
+        ):
+            widget.setEnabled(loaded and not blocked)
+        self.export_geometry_action.setEnabled(loaded and not blocked)
+
+        if self.geometry_session.resolution is not None:
+            self.geometry_panel.set_resolution(self.geometry_session.resolution)
+            self.plan_view.set_geometry(self.geometry_session.resolution.geometry)
+            self.plan_view.set_selected_trace_channel(
+                self.session.selected_trace, self.session.selected_channel
+            )
+        else:
+            self.geometry_panel.clear()
+            self.plan_view.clear()
+
+    def _on_plan_point_clicked(self, trace: int, channel: int) -> None:
+        if not self.session.is_loaded or self.is_loading or self.is_processing:
+            return
+        self.channel_spin.setValue(self.session.clamp_channel(channel))
+        self._select_trace(trace)
+
+    def _on_plan_point_hovered(self, trace: int, channel: int, coord_a: float, coord_b: float) -> None:
+        self.cursor_label.setText(
+            f"Plan — trace {trace}, channel {channel:02d}, coords ({coord_a:.4g}, {coord_b:.4g})"
+        )
+
+    def _on_export_geometry_report_triggered(self) -> None:
+        if self._close_pending or not self.session.is_loaded or self.geometry_session.resolution is None:
+            return
+        default_name = "geometry_report.geometry.json"
+        if self.session.source_path is not None:
+            default_name = f"{self.session.source_path.stem}.geometry.json"
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self, "Export Geometry Report", default_name, "Geometry Report (*.geometry.json)"
+        )
+        if not path:
+            return
+        dataset = self.session.raw_dataset
+        source_path = self.session.source_path
+        assert dataset is not None and source_path is not None
+        try:
+            export_geometry_report(self.geometry_session.resolution, dataset, source_path, path)
+        except Exception as exc:  # noqa: BLE001 - export failure must reach the user, not crash the app
+            _LOGGER.error("Failed to export geometry report to %s", path, exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Export failed",
+                f"Could not export geometry report:\n{path}\n\n{type(exc).__name__}: {exc}",
+            )
+            return
+        _LOGGER.info("Exported geometry report: %s", path)
+
     # -- file opening (GUI-1B: background worker, see ADR-014) ---------------
 
     def _on_open_triggered(self) -> None:
@@ -1143,6 +1436,16 @@ class MainWindow(QMainWindow):
         self._update_views()
         self._refresh_processing_panel()
 
+        # Sprint 3D-0: a new file means a new survey -- geometry is resolved
+        # fresh (any overrides entered for a *previous* file are reset, see
+        # GeometrySession.resolve_for_new_dataset) and never touched again
+        # until the next successful file load or an explicit Apply/Discard/
+        # Reset Geometry action.
+        assert self.session.raw_dataset is not None
+        self.geometry_session.resolve_for_new_dataset(self.session.raw_dataset)
+        self._sync_geometry_override_form()
+        self._refresh_geometry_panel()
+
         name = self.session.source_path.name if self.session.source_path else "?"
         self.setWindowTitle(f"{_BASE_TITLE} — {name}")
         self._refresh_selected_label()
@@ -1171,6 +1474,7 @@ class MainWindow(QMainWindow):
         self.session.selected_channel = self.session.clamp_channel(value)
         self._update_views()
         self._refresh_selected_label()
+        self.plan_view.set_selected_trace_channel(self.session.selected_trace, self.session.selected_channel)
 
     def _on_trace_clicked(self, trace: int) -> None:
         if not self.session.is_loaded:
@@ -1194,6 +1498,7 @@ class MainWindow(QMainWindow):
         self.trace_spin.setValue(clamped)
         self.trace_spin.blockSignals(False)
         self._refresh_selected_label()
+        self.plan_view.set_selected_trace_channel(clamped, self.session.selected_channel)
 
     def _on_point_hovered(self, trace: int, time_ns: float, amplitude: float) -> None:
         self.cursor_label.setText(
