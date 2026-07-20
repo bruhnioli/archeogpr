@@ -102,6 +102,32 @@ type: architecture
 > alanı hangi amaçla kullanacağını (ör. rapor, görselleştirme, dışa
 > aktarım) açıkça seçmeli — üçünü birbirinin yerine kullanmamalı.
 
+> **Güncelleme (2026-07-20, Sprint 3D-1 sonrası):** İlk gerçek amplitude
+> C-scan/time-slice viewer'ı implemente edildi — ama aşağıdaki aşama
+> 3-10'un (resample, missing-mask, time/depth volume) **hiçbiri değil**;
+> ayrı, bağımsız bir Qt-free paket olarak:
+> `src/archaeogpr/cscan/{models,compute,validation,export}.py`. Bu not
+> daha önce "Test Stratejisi (Sprint 3D-1'de uygulanacak)" başlığı altında
+> bir sonraki 3D-1'in doğrudan gridding/volume testleri yazacağını
+> varsaymıştı — kullanıcının fiilen sipariş ettiği Sprint 3D-1 daha dar
+> kapsamlıydı (bkz.
+> [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]]): bir zaman
+> örneği/penceresinden `(trace_count, channel_count)` bir değer gridi
+> hesaplamak ve bunu gerçek X/Y point grid'inde veya idealize s/c
+> parametre grid'inde render etmek — **hiçbir spatial interpolation/
+> resampling/gridding yapmadan**. Aşağıdaki "Test Stratejisi" bölümünün
+> sentetik 3D fixture'ları hâlâ bir sonraki gerçek gridding/volume sprinti
+> için geçerli bir plan; Sprint 3D-1 onları kullanmadı, çünkü resample
+> aşamasına hiç girmedi. `compute_cscan()`, `archaeogpr.geometry`'nin
+> aksine `compute_trace_spacing()` gibi mevcut bir fonksiyonu yeniden
+> kullanmıyor — bu proje için genuinely yeni matematik (zaman örneği/
+> penceresi seçip amplitude agregasyonu). Bir sonraki gridding/volume
+> sprinti hem `archaeogpr.geometry`'nin `GeometryResolution`/
+> `ReadinessGates`'ini HEM DE muhtemelen `archaeogpr.cscan`'ın time-window
+> seçim/aggregation mantığını (kendi zaman ekseni penceresini kopyalamak
+> yerine) girdi olarak tüketmeyi değerlendirmeli. Detay:
+> [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
+
 ## Amaç
 
 Tek bir `.ogpr` swath'ının `(slice, channel, sample)` verisinden,
@@ -207,3 +233,5 @@ raporlandığını doğrulamak için). Bkz.
 - [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]]
 - [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
 - [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]
+- [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]]
+- [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]

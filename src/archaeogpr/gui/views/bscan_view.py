@@ -81,6 +81,10 @@ class BScanView(QWidget):
 
     traceClicked = Signal(int)
     pointHovered = Signal(int, float, float)  # trace_index, time_ns, amplitude
+    #: Sprint 3D-1: emitted only when the user *drags* :attr:`time_cursor` --
+    #: never emitted by :meth:`set_time_cursor` itself (which would otherwise
+    #: create a feedback loop with whatever caller pushed the new value in).
+    timeCursorDragged = Signal(float)  # time_ns
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -106,6 +110,14 @@ class BScanView(QWidget):
         self.trace_marker = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen("#ffe100", width=2))
         self.trace_marker.setVisible(False)
         self.plot_widget.addItem(self.trace_marker)
+
+        # Sprint 3D-1: horizontal line showing the C-scan dock's currently
+        # selected center time -- draggable, so moving it also drives the
+        # C-scan center-time field (see MainWindow._on_bscan_time_cursor_dragged).
+        self.time_cursor = pg.InfiniteLine(angle=0, movable=True, pen=pg.mkPen("#00cfcf", width=2))
+        self.time_cursor.setVisible(False)
+        self.time_cursor.sigPositionChangeFinished.connect(self._on_time_cursor_dragged)
+        self.plot_widget.addItem(self.time_cursor)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -203,6 +215,23 @@ class BScanView(QWidget):
     def reset_view(self) -> None:
         """Full trace range + full time range. Never touches contrast or the dataset."""
         self.plot_widget.getPlotItem().autoRange()
+
+    # -- C-scan time cursor (Sprint 3D-1) ------------------------------------
+
+    def set_time_cursor(self, time_ns: float | None) -> None:
+        """Programmatic move -- blocks signals, so this never re-emits :attr:`timeCursorDragged`."""
+        self.time_cursor.blockSignals(True)
+        try:
+            if time_ns is None:
+                self.time_cursor.setVisible(False)
+            else:
+                self.time_cursor.setPos(time_ns)
+                self.time_cursor.setVisible(True)
+        finally:
+            self.time_cursor.blockSignals(False)
+
+    def _on_time_cursor_dragged(self, _line: pg.InfiniteLine) -> None:
+        self.timeCursorDragged.emit(float(self.time_cursor.value()))
 
     def _trace_and_sample_at(self, view_point: QPointF) -> tuple[int, int] | None:
         if self._channel_data is None or self._time_ns is None:

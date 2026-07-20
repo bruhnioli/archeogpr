@@ -424,7 +424,8 @@ of them.
 GUI-1, 2026-07-17; display controls added in Sprint GUI-2; background file
 loading added in Sprint GUI-1B; non-destructive processing preview & apply
 added in Sprint GUI-3A; survey geometry inspector and C-scan readiness
-added in Sprint 3D-0; current version `0.4.0`) alongside the CLI — a
+added in Sprint 3D-0; actual X/Y point-grid C-scan/time-slice viewer added
+in Sprint 3D-1; current version `0.5.0`) alongside the CLI — a
 real Windows application, not a webpage: it never opens a browser tab,
 never listens on `localhost`, and never uses
 Flask/FastAPI/Streamlit/Dash/Electron. **Processing is preview-only, never
@@ -437,23 +438,49 @@ planned for later, separately-requested sprints (see
 
 **Sprint 3D-0 (`0.4.0`) survey geometry inspector and C-scan readiness** —
 a new Qt-free `archaeogpr.geometry` package
-(`models.py`/`resolve.py`/`validation.py`/`export.py`/`summary.py`)
-scientifically audits trace/channel geometry and classifies every
-resolved field's provenance (`FILE_METADATA`/`DERIVED`/`USER_SUPPLIED`/
-`INDEX_SPACE`/`MISSING`) instead of guessing spacing, origin, azimuth, or
-CRS. A new "Survey Geometry" dock shows this provenance plus five
-structured readiness gates (`index_view_ready`, `local_cscan_ready`,
-`global_cscan_ready`, `time_volume_ready`, and `depth_volume_ready` —
-always `False` this sprint, since no velocity-confirmation flow exists
-yet), an override form (spacing, origin, azimuth, channel direction, CRS)
-that only takes effect on explicit **Apply Geometry**, and a new **Plan
-View** dock (2D acquisition footprint, one vectorized PyQtGraph scatter
-item, bidirectionally synced with the B-scan/A-scan trace/channel
-selection). **This sprint does not render a volume or a C-scan** — no
-PyVista, no VTK, no gridding/resampling, no depth conversion. See
+(`models.py`/`resolve.py`/`validation.py`/`export.py`/`summary.py`/
+`regularity.py`) scientifically audits trace/channel geometry and
+classifies every resolved field's provenance (`FILE_METADATA`/`DERIVED`/
+`USER_SUPPLIED`/`INDEX_SPACE`/`MISSING`) instead of guessing spacing,
+origin, azimuth, or CRS. A new "Survey Geometry" dock shows this
+provenance plus seven structured readiness gates (`index_view_ready`,
+`local_parameter_grid_ready`, `rectilinear_cscan_ready`,
+`actual_xy_point_grid_ready`, `global_cscan_ready`, `time_volume_ready`,
+and `depth_volume_ready` — always `False` this sprint, since no
+velocity-confirmation flow exists yet), an override form (spacing,
+origin, azimuth, channel direction, CRS) that only takes effect on
+explicit **Apply Geometry**, and a new **Plan View** dock (2D acquisition
+footprint, one vectorized PyQtGraph scatter item, bidirectionally synced
+with the B-scan/A-scan trace/channel selection). **This sprint does not
+render a volume or an amplitude C-scan** — no PyVista, no VTK, no
+gridding/resampling, no depth conversion. See
 [ADR-016](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates.md)
 and
 [obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md).
+
+**Sprint 3D-1 (`0.5.0`) actual X/Y point-grid C-scan and time-slice
+viewer** — a new Qt-free `archaeogpr.cscan` package
+(`models.py`/`compute.py`/`validation.py`/`export.py`) computes a single
+`(trace_count, channel_count)` C-scan value grid from one time sample or
+a half-open time window, using one of four aggregations (`Single sample`
+— the only signed one; `RMS`/`Mean absolute`/`Maximum absolute` — all
+non-negative by construction, since a signed window mean could cancel
+positive/negative half-cycles toward a falsely small value directly over
+a real reflection). A new "C-scan / Time Slice" dock renders that grid on
+either the survey's **actual X/Y point grid** (default, explicitly
+labeled "no interpolation") or an idealized **derived s/c parameter
+grid** (clearly labeled, never conflated with the first) — the two are
+never resampled into or substituted for each other. Raw/Current/Preview
+sources are all supported, trace/channel/time selection stays
+synchronized across the B-scan/A-scan/Plan View/C-scan, and a stale C-scan
+result (from a since-applied processing or geometry change) is labeled
+rather than silently discarded. **This sprint performs no spatial
+interpolation, IDW, kriging, Delaunay gridding, or raster resampling of
+any kind, and renders no volume** — no PyVista, no VTK, no isosurfaces, no
+depth conversion. See
+[ADR-017](obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy.md)
+and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan.md).
 
 **Sprint GUI-3A (`0.3.0`) non-destructive processing preview & apply** —
 five already-stable, already-tested `processing/*.py` functions
@@ -544,10 +571,12 @@ you open, verified by SHA-256 before/after in
 [obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md),
 [obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md),
 and
-[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md) —
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md),
+and
+[obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan.md](obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan.md) —
 this holds regardless of how many processing operations are previewed or
-applied in-memory, and regardless of any geometry override staged or
-applied.
+applied in-memory, regardless of any geometry override staged or applied,
+and regardless of how many C-scans are computed, viewed, or exported.
 
 Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_011_GUI_Technology_Decision.md`,
@@ -556,6 +585,7 @@ Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply.md`,
 `obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates.md`,
+`obsidian/ArchaeoGPR_Vault/06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/GUI_Architecture.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md`,
 `obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/Processing_Preview_and_Commit_Model.md`,
@@ -567,7 +597,8 @@ Architecture and design records:
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_2_Display_Controls.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_1B_Background_Tasks.md`,
 `obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply.md`,
-`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md`.
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector.md`,
+`obsidian/ArchaeoGPR_Vault/02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan.md`.
 
 The `io`, `model`, `processing`, `qc`, `export` packages and the CLI
 documented above are **unchanged** by the GUI — it is a new consumer of
@@ -584,16 +615,21 @@ depth slices, anomaly detection, archaeological classification, Blender
 export, GIS export, trace-by-trace (per-trace-independent) automatic
 time-zero warping, sub-sample shifting. **GUI**: a native Windows viewer
 (B-scan/A-scan/metadata) with non-destructive processing preview & apply
-(time-zero/DC offset/dewow/band-pass/background removal) and a survey
+(time-zero/DC offset/dewow/band-pass/background removal), a survey
 geometry inspector with C-scan/3D readiness reporting (index/local/global
 coordinate resolution, per-field provenance, a 2D acquisition footprint
-plan view, a geometry report JSON export — see
+plan view, a geometry report JSON export), and an actual amplitude C-scan/
+time-slice viewer (time sample or half-open time window, four
+aggregations, actual X/Y point-map or derived s/c parameter-grid
+rendering, PNG+JSON export — see
 [GUI (native Windows desktop viewer)](#gui-native-windows-desktop-viewer))
 is implemented — but gain, an undo/redo stack, a recipe system, saving a
-processed dataset to a file, and any actual C-scan/3D volume rendering
-(PyVista/VTK, gridding/resampling, depth conversion) are not, and remain
-planned for later, separately-requested sprints. Sprint 3D-0 deliberately
-reports C-scan/3D **readiness** without building a volume — see
+processed dataset to a file, and any spatial interpolation/gridding/
+resampling or 3D volume rendering (PyVista/VTK, isosurfaces, depth
+conversion) are not, and remain planned for later, separately-requested
+sprints. Sprint 3D-1's C-scan is a per-(trace, channel) value grid on the
+survey's own point positions, never a resampled/interpolated grid or a
+volume — see
 [obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md](obsidian/ArchaeoGPR_Vault/03_ARCHITECTURE/3D_Volume_Data_Model.md).
 
 **Background-removal algorithms are implemented as Sprint 4A candidates,

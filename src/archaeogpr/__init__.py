@@ -8,6 +8,6 @@ migration, ...) are implemented yet — see CLAUDE.md.
 from archaeogpr.io.ogpr_reader import read_ogpr, read_ogpr_header
 from archaeogpr.model.dataset import GPRDataset
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = ["read_ogpr", "read_ogpr_header", "GPRDataset", "__version__"]

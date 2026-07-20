@@ -201,3 +201,30 @@ def make_gpr_dataset(
 def dataset_factory():
     """Returns make_gpr_dataset itself, so tests can pass their own overrides."""
     return make_gpr_dataset
+
+
+# The literal env var name ``archaeogpr.gui.window_state.WINDOW_STATE_PATH_ENV_VAR``
+# resolves to -- duplicated here rather than imported, since importing anything
+# under ``archaeogpr.gui`` (PySide6-dependent) from this file would break headless
+# core-suite collection (ADR-012's Qt-free-core-import rule; this file is shared by
+# both `pytest -m "not gui"` and `pytest -m gui`).
+_WINDOW_STATE_PATH_ENV_VAR = "ARCHAEOGPR_WINDOW_STATE_PATH"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_gui_window_state(request, monkeypatch, tmp_path):
+    """ADR-018 Addendum: every ``@pytest.mark.gui`` test gets its own window-state file.
+
+    Autouse but gated on the ``gui`` marker (a no-op, zero-cost for the entire
+    Qt-free core suite) -- redirects ``archaeogpr.gui.window_state.
+    open_window_settings()``'s default resolution to a per-test file under
+    ``tmp_path`` (already unique per test, including under ``pytest-xdist``
+    parallel workers, and cleaned up by pytest itself) via the documented
+    environment-variable override. This is what keeps automated verification
+    from ever reading, writing, or clearing the real
+    ``%LOCALAPPDATA%\\ArchaeoGPR\\window_state.ini`` -- no GUI test needs to
+    request this explicitly; it is impossible to forget.
+    """
+    if request.node.get_closest_marker("gui") is None:
+        return
+    monkeypatch.setenv(_WINDOW_STATE_PATH_ENV_VAR, str(tmp_path / "window_state.ini"))

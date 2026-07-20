@@ -67,8 +67,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         app = QApplication(sys.argv[:1])
 
     from archaeogpr.gui.main_window import MainWindow
+    from archaeogpr.gui.window_state import open_window_settings
 
-    window = MainWindow()
+    if args.smoke_test:
+        # Settings isolation (ADR-018 Addendum): a smoke test verifies
+        # construction, imports, file open, worker lifecycle, and clean exit
+        # -- never the user's saved window layout. persist_window_state=False
+        # means the real %LOCALAPPDATA% window-state file is neither read
+        # (no restore) nor written (no save on the clean close below); the
+        # ephemeral factory covers the one remaining settings touch-point
+        # (Reset Window Layout), which a smoke run never triggers anyway.
+        window = MainWindow(
+            persist_window_state=False,
+            window_settings_factory=lambda: open_window_settings(ephemeral=True),
+        )
+    else:
+        window = MainWindow()
 
     if args.open:
         window.open_path(args.open)
