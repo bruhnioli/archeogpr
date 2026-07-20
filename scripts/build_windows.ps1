@@ -7,10 +7,18 @@
     caller's current directory), uses the project's own .venv\Scripts\
     python.exe (never a system/Anaconda interpreter), verifies the Qt
     package versions match and that PySide6.QtCore actually imports before
-    spending time on a PyInstaller build, cleans only this app's own
-    build/dist output (never a general git-clean), runs PyInstaller against
-    packaging/archaeogpr.spec, and finishes with a --smoke-test run of the
-    frozen executable.
+    spending time on a PyInstaller build, refuses to proceed if a previous
+    ArchaeoGPR.exe is still running (never force-closes it for you), cleans
+    only this app's own build/dist output (never a general git-clean), runs
+    PyInstaller against packaging/archaeogpr.spec, and finishes with a
+    --smoke-test run of the frozen executable.
+
+    Settings isolation (ADR-018 Addendum): the smoke test runs with
+    ARCHAEOGPR_WINDOW_STATE_PATH pointed at a throwaway temp file, and this
+    script proves the real %LOCALAPPDATA%\ArchaeoGPR\window_state.ini was
+    never read, written, created, or cleared by recording its hash/size (or
+    absence) before the smoke test and verifying it is byte-for-byte
+    identical (or still absent) after.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
@@ -93,7 +101,21 @@ if ($ImportSmokeExit -ne 0) {
     exit 1
 }
 
-# 6. Clean only this app's own build/dist output, never a general clean -----
+# 6. Preflight: refuse to proceed if a previous build is still running -------
+# A running ArchaeoGPR.exe locks its own _internal\*.pyd/.dll files, which
+# turns the cleanup below into a wall of unrecoverable per-file Remove-Item
+# errors. Fail fast with one clear message instead -- this script never
+# force-closes a running GUI process on the user's behalf; silently killing
+# it would be a surprising, hard-to-reverse action outside this script's
+# remit, regardless of whether this particular app has unsaved state to lose.
+$RunningInstance = Get-Process -Name "ArchaeoGPR" -ErrorAction SilentlyContinue
+if ($RunningInstance) {
+    $Pids = ($RunningInstance | Select-Object -ExpandProperty Id) -join ", "
+    Write-Error "ArchaeoGPR.exe is currently running (PID $Pids). Close it before rebuilding -- this script never force-closes a running instance for you."
+    exit 1
+}
+
+# 7. Clean only this app's own build/dist output, never a general clean -----
 $BuildDir = Join-Path $RepoRoot "build\ArchaeoGPR"
 $DistDir = Join-Path $RepoRoot "dist\ArchaeoGPR"
 foreach ($path in @($BuildDir, $DistDir)) {
@@ -103,7 +125,7 @@ foreach ($path in @($BuildDir, $DistDir)) {
     }
 }
 
-# 7. Run PyInstaller ----------------------------------------------------------
+# 8. Run PyInstaller ----------------------------------------------------------
 Write-Output "Running PyInstaller..."
 & $Python -m PyInstaller (Join-Path $RepoRoot "packaging\archaeogpr.spec") --distpath (Join-Path $RepoRoot "dist") --workpath (Join-Path $RepoRoot "build") --noconfirm
 if ($LASTEXITCODE -ne 0) {
@@ -111,7 +133,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-# 8. Output executable path ---------------------------------------------------
+# 9. Output executable path ---------------------------------------------------
 $ExePath = Join-Path $RepoRoot "dist\ArchaeoGPR\ArchaeoGPR.exe"
 if (-not (Test-Path $ExePath)) {
     Write-Error "Build reported success but $ExePath does not exist."
@@ -119,12 +141,55 @@ if (-not (Test-Path $ExePath)) {
 }
 Write-Output "Built executable: $ExePath"
 
-# 9. Smoke test the frozen executable -----------------------------------------
+# 10. Settings isolation for the smoke test (ADR-018 Addendum) ----------------
+# The real window-state file this build verification must never touch --
+# recorded (or its absence recorded) now, and re-checked byte-for-byte after
+# the smoke test below, so this script itself proves it never read, wrote,
+# created, or cleared the developer's actual saved layout.
+$RealWindowStatePath = Join-Path $env:LOCALAPPDATA "ArchaeoGPR\window_state.ini"
+$RealStateExistedBefore = Test-Path $RealWindowStatePath
+if ($RealStateExistedBefore) {
+    $RealStateBefore = Get-FileHash -Path $RealWindowStatePath -Algorithm SHA256
+    $RealStateBeforeInfo = Get-Item $RealWindowStatePath
+    Write-Output "Real window_state.ini present before smoke test: $($RealStateBeforeInfo.Length) bytes, sha256 $($RealStateBefore.Hash)"
+} else {
+    Write-Output "Real window_state.ini does not exist before smoke test (expected on a fresh machine)."
+}
+
+# A unique per-run temp path -- never the real file -- so the smoke-test
+# subprocess (which additionally passes persist_window_state=False, see
+# app.py) has nothing real to touch even if that guard were ever removed.
+$SmokeWindowStatePath = Join-Path $env:TEMP "archaeogpr_build_smoke_window_state_$PID.ini"
+$env:ARCHAEOGPR_WINDOW_STATE_PATH = $SmokeWindowStatePath
+
+# 11. Smoke test the frozen executable ----------------------------------------
 Write-Output "Running frozen executable smoke test..."
 & $ExePath --smoke-test
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Frozen executable smoke test failed (exit code $LASTEXITCODE)."
-    exit $LASTEXITCODE
+$SmokeExitCode = $LASTEXITCODE
+
+Remove-Item -Path $SmokeWindowStatePath -Force -ErrorAction SilentlyContinue
+Remove-Item Env:ARCHAEOGPR_WINDOW_STATE_PATH -ErrorAction SilentlyContinue
+
+if ($SmokeExitCode -ne 0) {
+    Write-Error "Frozen executable smoke test failed (exit code $SmokeExitCode)."
+    exit $SmokeExitCode
 }
 Write-Output "Frozen executable smoke test passed."
+
+# 12. Verify the real window-state file was never touched ---------------------
+$RealStateExistsAfter = Test-Path $RealWindowStatePath
+if ($RealStateExistedBefore -ne $RealStateExistsAfter) {
+    Write-Error "Settings-isolation violation: real window_state.ini existed=$RealStateExistedBefore before the smoke test but existed=$RealStateExistsAfter after."
+    exit 1
+}
+if ($RealStateExistedBefore) {
+    $RealStateAfter = Get-FileHash -Path $RealWindowStatePath -Algorithm SHA256
+    if ($RealStateAfter.Hash -ne $RealStateBefore.Hash) {
+        Write-Error "Settings-isolation violation: real window_state.ini's SHA-256 changed during the smoke test ($($RealStateBefore.Hash) -> $($RealStateAfter.Hash))."
+        exit 1
+    }
+    Write-Output "Real window_state.ini unchanged by the smoke test (sha256 $($RealStateAfter.Hash))."
+} else {
+    Write-Output "Real window_state.ini still does not exist after the smoke test (as expected)."
+}
 Write-Output "Build complete: $ExePath"

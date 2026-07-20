@@ -37,12 +37,13 @@ ve Sprint 2.2 durumları da `done` — bkz.
 [[02_SPRINTS/Sprint_02_2_TimeAxis_DCWindow_Validation]].
 
 Bunun yanında, kullanıcının ayrı isteğiyle başlayan **GUI/3D dönüşüm
-track'i** altı sprint ilerledi. **GUI-0/GUI-1/GUI-2 `main`'e merge edildi**
+track'i** yedi sprint ilerledi. **GUI-0/GUI-1/GUI-2 `main`'e merge edildi**
 (2026-07-18, PR #2, merge commit `009fb9d`); **GUI-1B `main`'e merge
 edildi** (2026-07-18, PR #3, merge commit `870f0c8`); **GUI-3A `main`'e
-merge edildi** (2026-07-19, PR #4, merge commit `f3e516c`): **Sprint
-GUI-0** ([[02_SPRINTS/Sprint_GUI_0_Foundation]], done, yalnızca audit/ADR/
-mimari tasarım, kod yok), **Sprint GUI-1**
+merge edildi** (2026-07-19, PR #4, merge commit `f3e516c`); **3D-0
+`main`'e merge edildi** (2026-07-20, PR #5, merge commit `a43d947`):
+**Sprint GUI-0** ([[02_SPRINTS/Sprint_GUI_0_Foundation]], done, yalnızca
+audit/ADR/mimari tasarım, kod yok), **Sprint GUI-1**
 ([[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]], done, native PySide6 viewer +
 Windows executable), **Sprint GUI-2**
 ([[02_SPRINTS/Sprint_GUI_2_Display_Controls]], done, kontrast/colormap/
@@ -51,18 +52,23 @@ A-scan modları/PNG export, `0.2.0`), **Sprint GUI-1B**
 file-loading worker, `0.2.1`), **Sprint GUI-3A**
 ([[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]], done, 5 stabil
 processing fonksiyonu artık GUI'de non-destructive preview→apply ile
-kullanılabiliyor — undo/redo/recipe/gain/3D YOK, `0.3.0`). **Sprint 3D-0**
+kullanılabiliyor — undo/redo/recipe/gain/3D YOK, `0.3.0`), **Sprint 3D-0**
 ([[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]], done, survey
 geometry inspector + C-scan/3D readiness raporlama — index/local/global
 koordinat çözümü, alan-bazlı provenance, 2D plan view, geometry report
-export, `0.4.0`; volume render/PyVista/gerçek C-scan YOK) henüz **merge
-edilmedi**, kullanıcının onayı bekleniyor. Sprint 4B (Gain, yukarıda) ile
-bu GUI track'i birbirinden bağımsız, paralel track'lerdir — biri diğerini
-başlatmaz veya değiştirmez. Bkz.
-[[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
+export, `0.4.0`; volume render/PyVista/gerçek C-scan YOK). **Sprint 3D-1**
+([[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]], in_progress,
+gerçek amplitude C-scan/time-slice viewer — Qt-free `archaeogpr.cscan`
+paketi, actual X/Y point-map + derived s/c parameter-grid, `0.5.0`;
+gridding/PyVista/volume render YOK) implementasyon + testler tamam,
+dokümantasyon/quality gate/build sürüyor, henüz **commit/merge
+edilmedi**. Sprint 4B (Gain, yukarıda) ile bu GUI track'i birbirinden
+bağımsız, paralel track'lerdir — biri diğerini başlatmaz veya değiştirmez.
+Bkz. [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
 [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]],
 [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]],
-[[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]].
+[[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]],
+[[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
 
 ## Tamamlanan özellikler
 **Sprint 1:** OpenGPR header/preamble okuyucu, Radar Volume + Sample
@@ -283,12 +289,18 @@ removal) artık GUI'den preview→apply ile kullanılabiliyor** (non-
 destructive, raw/current/preview ayrımı, bkz.
 [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]). **Sprint
 3D-0 ile survey geometry artık denetlenebiliyor** (index/local/global
-koordinat çözümü, alan-bazlı provenance, 5 C-scan/3D readiness gate'i, 2D
+koordinat çözümü, alan-bazlı provenance, 7 C-scan/3D readiness gate'i, 2D
 plan view, geometry report export — bkz.
-[[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]) — ancak
-gain, undo/redo, recipe, processed dataset kaydetme, ve gerçek C-scan/3D
-volume render (PyVista/VTK, gridding/resampling, derinlik dönüşümü)
-hiçbiri henüz yoktur; bu ayrım kasıtlı olarak korunuyor.
+[[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]). **Sprint
+3D-1 ile gerçek bir amplitude C-scan/time-slice viewer artık mevcuttur**
+(Qt-free `archaeogpr.cscan` paketi, half-open zaman penceresi seçimi, 4
+aggregation, actual X/Y point-map + derived s/c parameter-grid — asla
+resample edilmez, Raw/Current/Preview kaynak desteği, PNG+JSON export —
+bkz. [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]])
+— ancak gain, undo/redo, recipe, processed dataset kaydetme, ve gerçek
+gridding/3D volume render (PyVista/VTK, spatial interpolation/resampling,
+derinlik dönüşümü) hiçbiri henüz yoktur; bu ayrım kasıtlı olarak
+korunuyor.
 
 ## Mevcut kod mimarisi
 `src/archaeogpr/{io,model,processing,qc,export}` + `cli.py`. Detay:
@@ -396,8 +408,10 @@ açık isteği olmadan BAŞLATILMAYACAK. Detay:
 [[01_PROJECT_STATE/02_Next_Development_Sprint]].
 
 ## Son güncelleme tarihi
-2026-07-19 (Sprint 3D-0 — survey geometry inspector ve C-scan readiness,
-`0.4.0`, henüz merge edilmedi, kullanıcının onayı bekleniyor; Sprint
-GUI-3A 2026-07-19'da `main`'e merge edildi, PR #4, commit `f3e516c`,
-`0.3.0`; GUI-1B 2026-07-18'de `main`'e merge edildi, `0.2.1`; en son
-processing/sinyal-işleme sprinti hâlâ Sprint 4A Closure, 2026-07-16)
+2026-07-20 (Sprint 3D-1 — actual X/Y point-grid C-scan/time-slice viewer,
+`0.5.0`, implementasyon + testler tamam, dokümantasyon/quality gate/build
+sürüyor, henüz commit/merge edilmedi; Sprint 3D-0 2026-07-20'de `main`'e
+merge edildi, PR #5, commit `a43d947`, `0.4.0`; Sprint GUI-3A
+2026-07-19'da `main`'e merge edildi, PR #4, commit `f3e516c`, `0.3.0`;
+GUI-1B 2026-07-18'de `main`'e merge edildi, `0.2.1`; en son processing/
+sinyal-işleme sprinti hâlâ Sprint 4A Closure, 2026-07-16)

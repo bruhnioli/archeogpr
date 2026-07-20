@@ -8,12 +8,14 @@ How to build, run, and smoke-test the ArchaeoGPR native Windows desktop
 viewer (Sprint GUI-1, display controls added in Sprint GUI-2, background
 file loading added in Sprint GUI-1B, non-destructive processing preview &
 apply added in Sprint GUI-3A, survey geometry inspector and C-scan
-readiness added in Sprint 3D-0 — current version `0.4.0`). See
+readiness added in Sprint 3D-0, actual X/Y point-grid C-scan/time-slice
+viewer added in Sprint 3D-1 — current version `0.5.0`). See
 [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] /
 [[02_SPRINTS/Sprint_GUI_2_Display_Controls]] /
 [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]] /
 [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]] /
-[[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]] for the sprint
+[[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]] /
+[[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]] for the sprint
 records and
 [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]] for why
 the interpreter choice below is not optional. The package version is a
@@ -80,7 +82,10 @@ is 21,113,104 bytes; v0.3.0 / Sprint GUI-3A measured 298,551,600 bytes) —
 dominated by PySide6's Qt binaries and numpy/scipy's OpenBLAS DLLs, not by
 this project's own code. The ~46 KB delta between 0.3.0 and 0.4.0 reflects
 the new pure-Python `archaeogpr.geometry` package and GUI modules only —
-no new binary dependency was added for Sprint 3D-0. `packaging/archaeogpr.spec` explicitly excludes
+no new binary dependency was added for Sprint 3D-0. v0.5.0 / Sprint 3D-1
+adds only the new pure-Python `archaeogpr.cscan` package and GUI modules
+(no new binary dependency either — see the sprint's own final report for
+the exact measured size/hash once built). `packaging/archaeogpr.spec` explicitly excludes
 `pyqtgraph.examples`/`pyqtgraph.opengl` from the bundle (not used by this
 viewer) but does not attempt deeper Qt-submodule trimming yet — see
 [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]] Issues Discovered.
@@ -89,7 +94,7 @@ viewer) but does not attempt deeper Qt-submodule trimming yet — see
 
 ```powershell
 dist\ArchaeoGPR\ArchaeoGPR.exe --smoke-test   # exit 0, no visible window stays open
-dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.4.0"
+dist\ArchaeoGPR\ArchaeoGPR.exe --version      # prints "archaeogpr 0.5.0"
 dist\ArchaeoGPR\ArchaeoGPR.exe --open data\raw\Swath003_Array02.ogpr --smoke-test
 ```
 
@@ -200,15 +205,65 @@ All three are logged to `%LOCALAPPDATA%\ArchaeoGPR\logs\archaeogpr.log`
     working.
 29. **File → Export Geometry Report...**, save the `.geometry.json` file,
     and confirm it opens as valid JSON with no `NaN`/`Infinity` tokens.
-30. Close the window.
+30. In the **C-scan / Time Slice** dock, leave Source at its default
+    (**Current**), Geometry view at its default (**Actual X/Y point
+    map**), Aggregation at its default (**Single sample**), set a Center
+    time within the loaded file's time range, and click **Compute** — the
+    rendered view shows one colored point per valid (trace, channel), and
+    the mode label reads "Actual X/Y point map — no interpolation"
+    (Sprint 3D-1, see
+    [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]).
+31. Switch **Geometry view** to **Derived s/c parameter grid** — the view
+    switches to a continuous image (along-track on the X axis,
+    cross-track on the Y axis) and the mode label reads "Derived s/c
+    parameter grid"; switch back and confirm the two views never show the
+    same rendering.
+32. Switch **Aggregation** to **RMS**, **Mean absolute**, or **Maximum
+    absolute** — the "Window width, ns" field becomes enabled; set a
+    width and click **Compute** again — confirm the displayed values are
+    never negative for these three, unlike **Single sample**. Confirm
+    **Symmetric around zero** (Display section) becomes disabled for a
+    window aggregation and re-enables for **Single sample**.
+33. Click a point in the C-scan view — the B-scan/A-scan trace and
+    channel selection updates to match; conversely, change the trace spin
+    box or channel selector — the C-scan view's highlighted point updates
+    to match, and the Plan View's own selection stays in sync with both.
+34. Confirm a successful Compute positions the B-scan's draggable time
+    cursor at the requested center time; drag the cursor to a new
+    position on the B-scan and confirm the C-scan dock's "Center time, ns"
+    field updates to match.
+35. Change **Source** to **Preview** (only enabled once a Processing
+    preview exists), Compute again, then click **Discard Preview** in the
+    Processing dock — confirm the C-scan status changes to "Stale" rather
+    than silently showing a now-invalid result.
+36. Start a Preview (Processing dock) or a new file load, and confirm
+    **Compute**/**Export C-scan PNG + JSON...** are disabled while it is
+    in flight, but the C-scan view remains visible (showing the last
+    valid result) and trace/channel selection sync keeps working;
+    conversely, starting a C-scan Compute must disable **File → Open**
+    and the Processing dock's **Preview** button until it finishes.
+37. Start a C-scan Compute on a sufficiently large file, then click
+    **Cancel Compute** — the dock returns to its previous state without
+    crashing, and any *previous* valid result (if one existed) remains
+    displayed.
+38. While a C-scan compute is running, close the window — it must
+    disappear immediately (same deferred-close policy as file loading/
+    processing preview), with no crash and no "QThread: Destroyed while
+    thread is still running" warning.
+39. **File → Export C-scan PNG + JSON...** (or the dock's own Export
+    button), save the file, and confirm both the `.png` and its
+    `.cscan.json` sidecar exist, the JSON opens as valid JSON with no
+    `NaN`/`Infinity` tokens, and it includes `"no_interpolation": true`.
+40. Close the window.
 
 The raw `.ogpr` file's SHA-256 must be identical before and after this
-entire flow, including every processing preview/apply and every geometry
-override/apply/export — the reader only ever opens it `"rb"`, and no
-processing or geometry operation ever writes to it (see
-`archaeogpr.io.ogpr_reader`, unchanged by every GUI sprint).
+entire flow, including every processing preview/apply, every geometry
+override/apply/export, and every C-scan compute/view-switch/export — the
+reader only ever opens it `"rb"`, and no processing, geometry, or C-scan
+operation ever writes to it (see `archaeogpr.io.ogpr_reader`, unchanged by
+every GUI sprint).
 
-## Known Limitations (Sprint GUI-1/GUI-2/GUI-1B/GUI-3A/3D-0)
+## Known Limitations (Sprint GUI-1/GUI-2/GUI-1B/GUI-3A/3D-0/3D-1)
 
 - Processing preview/apply is implemented for exactly five stable
   operations (time-zero correction, DC offset correction, dewow,
@@ -284,6 +339,66 @@ processing or geometry operation ever writes to it (see
 - No project/session save, no `.ogpr` file association, no Start Menu/
   desktop shortcut, no installer, no auto-update — all deferred to a
   future packaging sprint.
+- The **C-scan / Time Slice** dock (Sprint 3D-1) computes a value grid
+  from one time sample or time window and renders it on the actual X/Y
+  point grid or the derived s/c parameter grid — it never performs
+  spatial interpolation, IDW, kriging, Delaunay gridding, or raster
+  resampling of any kind, and never builds a 3D volume. No PyVista, no
+  VTK, no isosurfaces, no depth conversion. See
+  [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]] /
+  [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
+- `CScanAggregation.SINGLE_SAMPLE` is the only signed C-scan aggregation;
+  `RMS`/`Mean absolute`/`Maximum absolute` are non-negative by
+  construction — there is deliberately no signed *window* mean, since
+  averaging a wavelet's positive/negative half-cycles over a window can
+  cancel toward a falsely small value directly over a strong reflection.
+- A partially out-of-range C-scan time window is silently clamped to the
+  dataset's actual time range (with a warning naming the clamped range
+  used); a window entirely outside the dataset's time range is rejected.
+  This clamp/reject decision is independent of the Survey Geometry dock's
+  own readiness gates — a C-scan on the actual X/Y point grid works even
+  when `rectilinear_cscan_ready` is blocked (as it is for the bundled real
+  file).
+- A C-scan result computed against a since-superseded Processing preview,
+  applied processing chain, or geometry override is labeled "Stale" rather
+  than silently discarded or left unlabeled — recompute to clear the
+  label; export is rejected while a result is data/geometry-stale. Changing
+  a request-form value (center time, window width, aggregation, source)
+  after a compute relabels the displayed result "Stale (parameters
+  changed — recompute)" — a label only; the result shown is still the
+  validly-computed one, a recompute is never auto-started, and the
+  center-time spin moves the B-scan time cursor immediately as you change
+  it.
+- **Dock layout (post-acceptance-failure fix, see ADR-018)**: the default
+  window layout is three tabified dock pairs — Dataset + Processing
+  (left), Metadata + Survey Geometry (right), Plan View + C-scan / Time
+  Slice (bottom, full width) — with only the B-scan/A-scan view in the
+  center. Window geometry and dock layout persist across sessions in
+  `%LOCALAPPDATA%\ArchaeoGPR\window_state.ini` (schema-versioned; a layout
+  saved by a different schema version, a corrupt file, a saved geometry
+  that no longer fits the current screen, or a saved layout from a larger
+  window than the current one all fall back to the default layout instead
+  of restoring). **View → Reset Window Layout** clears the saved state and
+  rebuilds the default arrangement without restarting. Long panels
+  (Processing, Survey Geometry, C-scan) scroll inside their docks rather
+  than forcing the window larger. Docks cannot float (explicit UX
+  decision — ADR-018 Decision 5); they can still be moved between areas
+  and re-tabbed, and closable docks reopen via Reset Window Layout. The
+  default layout is verified overlap-free at 1280×800 and 1366×768.
+- **Settings isolation (ADR-018 Addendum)**: the real
+  `%LOCALAPPDATA%\ArchaeoGPR\window_state.ini` above is persistent **only**
+  for normal interactive use. `ArchaeoGPR.exe --smoke-test` (and
+  `--open <file> --smoke-test`) never reads or writes it — it runs with an
+  ephemeral, non-persisted settings backend instead, so running the smoke
+  test can never overwrite a real saved layout. Every automated GUI test
+  in this repository is isolated the same way (a per-test temp file, via
+  `tests/conftest.py`'s autouse fixture). `scripts\build_windows.ps1`
+  proves this: it records the real file's SHA-256/size (or its absence)
+  before its own smoke-test run and fails the build if that is not
+  byte-for-byte identical (or still absent) afterward. **Reset Window
+  Layout** only ever clears the settings backend the running window
+  instance actually uses — in normal interactive use that is the real
+  file; it can never reach a different one.
 
 ## SmartScreen / Code Signing
 
@@ -319,6 +434,12 @@ for a manual rebuild without the script.) Never use a general `git clean`
 or delete `data\raw\` / `outputs\` — those are user data, not build
 output.
 
+**Close any running `ArchaeoGPR.exe` first.** The script refuses to
+proceed (a clear error, not a wall of `Remove-Item` permission failures)
+if a previous build's executable is still running — its open
+`_internal\*.pyd`/`.dll` handles would otherwise block the cleanup step.
+The script never force-closes a running instance for you.
+
 ## İlgili Notlar
 
 - [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]]
@@ -326,12 +447,14 @@ output.
 - [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]]
 - [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]]
 - [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
+- [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]]
 - [[06_DECISIONS/ADR_011_GUI_Technology_Decision]]
 - [[06_DECISIONS/ADR_012_GUI_Extras_Isolation_and_PythonOrg_Runtime]]
 - [[06_DECISIONS/ADR_013_Display_Policy_and_Non_Destructive_Visualization]]
 - [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]]
 - [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]
 - [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]
+- [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]
 - [[03_ARCHITECTURE/GUI_Architecture]]
 - `packaging/archaeogpr.spec`
 - `scripts/build_windows.ps1`

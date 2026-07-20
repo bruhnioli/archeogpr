@@ -95,6 +95,16 @@ class DatasetSession:
     #: was computed against, or ``None`` if there is no preview. See
     #: :meth:`has_fresh_preview`.
     preview_base_revision: int | None = None
+    #: Monotonic counter, bumped by every transition that sets, replaces, or
+    #: clears :attr:`preview_dataset` (:meth:`set_preview`,
+    #: :meth:`discard_preview`, :meth:`apply_preview`, :meth:`reset_to_raw`,
+    #: :meth:`commit_dataset`). Unlike :attr:`preview_base_revision`, it
+    #: distinguishes two *different* previews computed at the *same* base
+    #: revision -- which is exactly the granularity C-scan stale-result
+    #: detection needs for a PREVIEW-sourced result (see ADR-017 Decision 7;
+    #: this counter replaces the earlier ``id(preview_dataset)`` approach,
+    #: whose values CPython can legally reuse after garbage collection).
+    preview_generation: int = 0
 
     @property
     def dataset(self) -> GPRDataset | None:
@@ -200,6 +210,7 @@ class DatasetSession:
         self.preview_valid_mask = None
         self.current_revision = 0
         self.preview_base_revision = None
+        self.preview_generation += 1
         self.source_path = source_path
         self.selected_channel = 0
         self.selected_trace = 0 if dataset.shape[0] > 0 else None
@@ -215,12 +226,14 @@ class DatasetSession:
         self.preview_dataset = dataset
         self.preview_valid_mask = valid_mask
         self.preview_base_revision = self.current_revision
+        self.preview_generation += 1
 
     def discard_preview(self) -> None:
         """Drop the current preview (if any). :attr:`current_dataset` is untouched."""
         self.preview_dataset = None
         self.preview_valid_mask = None
         self.preview_base_revision = None
+        self.preview_generation += 1
 
     def apply_preview(self) -> None:
         """Atomically commit the current preview as the new :attr:`current_dataset`.
@@ -240,6 +253,7 @@ class DatasetSession:
         self.preview_dataset = None
         self.preview_valid_mask = None
         self.preview_base_revision = None
+        self.preview_generation += 1
 
     def reset_to_raw(self) -> None:
         """Discard the entire committed processing chain; :attr:`current_dataset` becomes the raw read.
@@ -257,6 +271,7 @@ class DatasetSession:
         self.preview_dataset = None
         self.preview_valid_mask = None
         self.preview_base_revision = None
+        self.preview_generation += 1
 
     def clamp_channel(self, channel: int) -> int:
         """Clamp ``channel`` into ``[0, channel_count)``; 0 if no dataset is loaded."""

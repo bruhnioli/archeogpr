@@ -58,6 +58,54 @@ type: architecture
 > grup) eklendi — bkz.
 > [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]] "Commit-Öncesi
 > Audit Turu 2".
+>
+> **Güncelleme (2026-07-20, Sprint 3D-1 sonrası):** Aşağıdaki katman
+> diyagramına yeni, bağımsız bir `CSCAN` katmanı eklendi —
+> `src/archaeogpr/cscan/{models,compute,validation,export}.py` (Qt-free).
+> `GEOM` katmanının aksine bu katman mevcut hiçbir fonksiyonu yeniden
+> kullanmıyor (genuinely yeni matematik: bir zaman örneği/penceresi seçip
+> amplitude'ları agregasyon eden bu projede ilk kod) ve `GEOM`'a hiç
+> bağımlı değil — bir C-scan değer gridi yalnızca amplitude/zamanın bir
+> fonksiyonu, koordinatların değil. `CSCAN`'in ürettiği değer gridini
+> gerçek X/Y koordinat grid'inde veya idealize s/c parametre grid'inde
+> render etmek tamamen GUI katmanının sorumluluğu
+> (`gui/views/cscan_view.py`) — bu ikisi asla birbirine resample
+> edilmiyor/harmanlanmıyor (bkz. ADR-017). GUI tarafında yeni bir
+> "C-scan / Time Slice" dock'u (Request/Display/Export bölümleri) eklendi,
+> B-scan'e draggable bir zaman cursor'ı eklendi, ve üçüncü bir arka plan
+> görevi (C-scan compute) `ActiveTaskKind` ile dosya yükleme/processing'e
+> katıldı (mevcut `is_loading`/`is_processing`'i DEĞİŞTİRMEDEN). Detay:
+> [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]],
+> [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
+>
+> **Güncelleme (2026-07-20, dock-layout düzeltmesi):** Sprint 3D-1 manuel
+> kabulü bir dock-overlap regresyonu nedeniyle başarısız olunca dock/pencere
+> yaşam döngüsü yeniden kuruldu — bkz.
+> [[06_DECISIONS/ADR_018_Versioned_Dock_Layout_and_Reset_Policy]].
+> Deterministik default düzen artık üç tabified çift: **sol** Dataset +
+> Processing (Dataset önde), **sağ** Metadata + Survey Geometry (Metadata
+> önde), **alt (tam genişlik)** Plan View + C-scan / Time Slice (Plan View
+> önde); merkezde yalnızca B-scan/A-scan splitter'ı. Her dock'un benzersiz
+> `objectName`'i var; window geometry + dock state, şema-versiyonlu ayrı
+> bir INI dosyasında kalıcı (`gui/window_state.py`,
+> `WINDOW_STATE_SCHEMA_VERSION`; dock seti değişen her sürümde
+> artırılmalı); uyumsuz/bozuk/ekrana-sığmayan state her zaman default
+> layout'a düşer; View → Reset Window Layout komutu her şeyi yeniden
+> kurar. Processing/Survey Geometry/C-scan panelleri `QScrollArea` içinde;
+> floating dock desteklenmiyor (açık UX kararı, ADR-018 Decision 5).
+>
+> **Güncelleme (2026-07-20, settings-isolation düzeltmesi):** `MainWindow`
+> artık `persist_window_state`/`window_settings_factory` keyword-only
+> parametreleri alıyor -- `--smoke-test` bunları gerçek
+> `%LOCALAPPDATA%\ArchaeoGPR\window_state.ini`'yi asla okumamak/yazmamak
+> için kullanıyor, ve `ARCHAEOGPR_WINDOW_STATE_PATH` env override'ı
+> `build_windows.ps1`'in subprocess smoke test'i ile `tests/conftest.py`'nin
+> her `@pytest.mark.gui` testini otomatik izole eden autouse fixture'ı
+> tarafından kullanılıyor. Prodüksiyon çağrıları (normal `python -m
+> archaeogpr.gui` başlatması) hiçbirini geçmiyor, önceki davranış
+> değişmeden kalıyor. Detay:
+> [[06_DECISIONS/ADR_018_Versioned_Dock_Layout_and_Reset_Policy]]
+> "Addendum: Settings Isolation for Automated Verification".
 
 ## Amaç
 
@@ -76,6 +124,7 @@ flowchart TB
     VIZ["Visualization katmani\n2D: PyQtGraph  |  3D: PyVista/pyvistaqt (opsiyonel gui3d)\nDisplayPolicy: clip/contrast/colormap -- yalnizca goruntu"]
     PROC["Processing engine (DEGISMEDI)\nsrc/archaeogpr/processing/*\n+ yeni: OperationSpec registry, recipes/"]
     GEOM["Geometry (GERCEK, Sprint 3D-0)\nsrc/archaeogpr/geometry/*\nQt-free -- provenance + readiness gates"]
+    CSCAN["C-scan (GERCEK, Sprint 3D-1)\nsrc/archaeogpr/cscan/*\nQt-free -- time sample/window aggregation\n(GEOM'dan bagimsiz)"]
     GRID["Gridding (hala tasarim, headless)\nsrc/archaeogpr/gridding/*"]
     MODEL["Domain model (DEGISMEDI)\nGPRDataset + ProcessingResult"]
     IO["IO katmani (DEGISMEDI)\nogpr_reader.py, read_processed_npz()\n+ yeni: DatasetReader protokolu"]
@@ -84,9 +133,11 @@ flowchart TB
     GUI --> VIZ
     GUI --> PROC
     GUI --> GEOM
+    GUI --> CSCAN
     GEOM --> GRID
     PROC --> MODEL
     GEOM --> MODEL
+    CSCAN --> MODEL
     GRID --> MODEL
     VIZ --> MODEL
     MODEL --> IO
@@ -135,6 +186,20 @@ flowchart TB
   yeniden kullanır, kopyalamaz. Detay:
   [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
   [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]].
+- **C-scan (GERÇEK, Sprint 3D-1)**: GUI'den VE `Geometry` katmanından
+  bağımsız, Qt-free bir paket
+  (`src/archaeogpr/cscan/{models,compute,validation,export}.py`) —
+  `Geometry`'nin aksine mevcut bir fonksiyonu yeniden kullanmıyor
+  (genuinely yeni matematik). Bir zaman örneği veya half-open zaman
+  penceresi seçer, `amplitudes` üzerinde 4 aggregation'dan biriyle
+  (`SINGLE_SAMPLE`/`RMS`/`MEAN_ABSOLUTE`/`MAXIMUM_ABSOLUTE`) birleştirir,
+  `(trace_count, channel_count)` bir değer gridi üretir — koordinatlarla
+  hiç ilgilenmez. Değer gridini gerçek X/Y point grid'inde veya idealize
+  s/c parametre grid'inde render etmek (asla ikisi birden, asla birbirine
+  resample edilerek) tamamen GUI katmanının sorumluluğu
+  (`gui/views/cscan_view.py`). Detay:
+  [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]],
+  [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
 - **Gridding**: hâlâ yalnızca tasarım, GUI'den bağımsız, headless test
   edilebilir bir paket (`src/archaeogpr/gridding/`) — yukarıdaki `Geometry`
   paketinin ürettiği readiness/koordinat sözleşmesini girdi olarak
@@ -192,3 +257,6 @@ olduğu için (bkz. ADR-001) snapshot'lar referans paylaşabilir, GPRPy'nin
 - [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]
 - [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
 - [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]
+- [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]]
+- [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]
+- [[06_DECISIONS/ADR_018_Versioned_Dock_Layout_and_Reset_Policy]]

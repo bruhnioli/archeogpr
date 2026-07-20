@@ -37,12 +37,16 @@ loading.
 
 from __future__ import annotations
 
+import contextlib
+import enum
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from PySide6.QtCore import Qt, QThread, QTimer
+import numpy as np
+from PySide6.QtCore import QByteArray, QSettings, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QStandardItemModel
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -60,6 +64,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QSplitter,
@@ -67,9 +72,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from archaeogpr.cscan.export import export_cscan_report
+from archaeogpr.cscan.models import (
+    CScanAggregation,
+    CScanError,
+    CScanGeometryView,
+    CScanRequest,
+    CScanResult,
+    CScanSourceKind,
+    aggregation_uses_window,
+)
+from archaeogpr.cscan.validation import validate_center_time_ns, validate_window_width_ns
 from archaeogpr.geometry import CrossTrackDirection
 from archaeogpr.geometry.export import export_geometry_report
-from archaeogpr.gui.export import export_bscan_png, write_display_sidecar
+from archaeogpr.gui.export import export_bscan_png, export_cscan_png, write_display_sidecar
+from archaeogpr.gui.models.cscan_display_settings import (
+    compute_cscan_display_levels,
+    default_cscan_display_settings,
+    symmetric_levels_allowed,
+)
+from archaeogpr.gui.models.cscan_session import CScanSession, CScanState
 from archaeogpr.gui.models.dataset_session import DatasetSession
 from archaeogpr.gui.models.display_settings import (
     MAX_CLIP_PERCENTILE,
@@ -82,9 +104,12 @@ from archaeogpr.gui.processing.models import ParameterSpec, ProcessingOperationS
 from archaeogpr.gui.processing.registry import REGISTRY, get_operation
 from archaeogpr.gui.views.ascan_view import AScanView
 from archaeogpr.gui.views.bscan_view import BScanView
+from archaeogpr.gui.views.cscan_view import CScanView
 from archaeogpr.gui.views.geometry_panel import GeometryPanel
 from archaeogpr.gui.views.metadata_panel import MetadataPanel
 from archaeogpr.gui.views.plan_view import PlanView
+from archaeogpr.gui.window_state import WINDOW_STATE_SCHEMA_VERSION, open_window_settings
+from archaeogpr.gui.workers.cscan_worker import CScanWorker
 from archaeogpr.gui.workers.file_loader import FileLoadState, FileLoadWorker
 from archaeogpr.gui.workers.processing_worker import ProcessingState, ProcessingWorker
 from archaeogpr.model.dataset import GPRDataset
@@ -95,10 +120,35 @@ _LOGGER = logging.getLogger("archaeogpr.gui")
 _BASE_TITLE = "ArchaeoGPR"
 _OGPR_FILE_FILTER = "OpenGPR Files (*.ogpr)"
 _PNG_FILE_FILTER = "PNG Files (*.png)"
+_CSCAN_JSON_FILE_FILTER = "C-scan Report (*.cscan.json)"
 _MANUAL_LEVEL_RANGE = 1.0e12  # generous bound; real amplitude magnitudes are far smaller
 _PERCENTILE_SLIDER_SCALE = 10  # slider is int-only; 90.0-100.0 step 0.1 -> 900-1000 step 1
 _ACTIVE_LOAD_STATES = (FileLoadState.LOADING, FileLoadState.CANCELLING)
 _ACTIVE_PROCESSING_STATES = (ProcessingState.RUNNING, ProcessingState.CANCELLING)
+_ACTIVE_CSCAN_STATES = (CScanState.COMPUTING, CScanState.CANCELLING)
+
+
+class ActiveTaskKind(enum.Enum):
+    """A read-only, derived view of "which background task (if any) is active right now".
+
+    Sprint 3D-1: added once a *third* background task (C-scan compute)
+    joined file loading and processing preview. Deliberately does **not**
+    replace :attr:`MainWindow.is_loading`/:attr:`MainWindow.is_processing`/
+    :attr:`MainWindow.is_computing_cscan` — those stay the authoritative,
+    independently-checkable gates each dock's own refresh method already
+    relies on (see ADR-014/ADR-015 for why they're keyed on a thread-object
+    field, not a state enum). This is purely a convenience for call sites
+    that want one value to describe/log/display "what's busy" without
+    re-deriving the same four-way ``if`` chain each time -- e.g. a unified
+    ``closeEvent`` status message or the C-scan panel's own guard.
+    """
+
+    NONE = "none"
+    FILE_LOAD = "file_load"
+    PROCESSING = "processing"
+    CSCAN = "cscan"
+    SHUTDOWN_PENDING = "shutdown_pending"
+
 
 _COLORMAP_ITEMS = (("Gray", "gray"), ("Seismic", "seismic"))
 _ASCAN_MODE_ITEMS = (
@@ -121,6 +171,42 @@ _CROSS_TRACK_DIRECTION_ITEMS: tuple[tuple[str, CrossTrackDirection | None], ...]
 )
 _GEOMETRY_OVERRIDE_RANGE = 1.0e9  # generous bound for origin/spacing overrides
 
+_CSCAN_GEOMETRY_VIEW_ITEMS: tuple[tuple[str, CScanGeometryView], ...] = (
+    ("Actual X/Y point map", CScanGeometryView.ACTUAL_XY_POINT_MAP),
+    ("Derived s/c parameter grid", CScanGeometryView.DERIVED_PARAMETER_GRID),
+)
+_CSCAN_AGGREGATION_ITEMS: tuple[tuple[str, CScanAggregation], ...] = (
+    ("Single sample", CScanAggregation.SINGLE_SAMPLE),
+    ("RMS", CScanAggregation.RMS),
+    ("Mean absolute", CScanAggregation.MEAN_ABSOLUTE),
+    ("Maximum absolute", CScanAggregation.MAXIMUM_ABSOLUTE),
+)
+_DISPLAY_SOURCE_TO_CSCAN_KIND: dict[DisplaySource, CScanSourceKind] = {
+    "raw": CScanSourceKind.RAW,
+    "current": CScanSourceKind.CURRENT,
+    "preview": CScanSourceKind.PREVIEW,
+}
+
+
+def _wrap_in_scroll_area(widget: QWidget) -> QScrollArea:
+    """Wrap ``widget`` in a resizable ``QScrollArea`` (ADR-018 Decision 4).
+
+    A long form's *natural* minimum size (many stacked ``QFormLayout`` rows,
+    e.g. the Processing/Survey Geometry/C-scan dock panels) otherwise
+    propagates straight up to its ``QDockWidget``'s effective minimum size --
+    which is exactly how one over-tall panel can force Qt's dock splitter to
+    steal space from the center view or another dock (see ADR-018 Decision
+    3). ``widgetResizable=True`` lets the scroll area itself shrink to
+    whatever the dock actually has room for, showing a scrollbar for the
+    part that doesn't fit, instead of inflating the dock's own minimum size.
+    """
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setWidget(widget)
+    return scroll
+
 
 class _PaddedSpinBox(QSpinBox):
     """A QSpinBox that zero-pads its display (e.g. ``05`` not ``5``) -- never truncates."""
@@ -136,8 +222,28 @@ class _PaddedSpinBox(QSpinBox):
 class MainWindow(QMainWindow):
     """Native PySide6 shell: view + non-destructive display controls (Sprint GUI-2)."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        persist_window_state: bool = True,
+        window_settings_factory: Callable[[], QSettings] | None = None,
+    ) -> None:
+        """``persist_window_state``/``window_settings_factory`` are the settings-isolation
+        seam (ADR-018 Addendum): with ``persist_window_state=False`` this window never
+        restores nor saves any window/dock layout state -- used by ``--smoke-test``
+        (see ``app.py``) so automated verification can never read or modify the real
+        user layout file. ``window_settings_factory`` overrides where Reset Window
+        Layout / save / restore look for their backing ``QSettings`` (defaults to
+        :func:`archaeogpr.gui.window_state.open_window_settings`, i.e. the real
+        production file unless the documented env override is set). Production
+        callers pass neither and get the pre-existing behavior unchanged.
+        """
         super().__init__(parent)
+        self._persist_window_state = persist_window_state
+        self._window_settings_factory: Callable[[], QSettings] = (
+            window_settings_factory if window_settings_factory is not None else open_window_settings
+        )
         self.session = DatasetSession()
         self.geometry_session = GeometrySession()
         self.display_settings = DisplaySettings()
@@ -195,14 +301,31 @@ class MainWindow(QMainWindow):
         # currently render -- see _dataset_for_display().
         self._display_source: DisplaySource = "current"
 
+        # -- Sprint 3D-1 C-scan state (see ADR-017) ---------------------------
+        # Mirrors the file-load/processing state above almost exactly -- see
+        # CScanState's docstring for why this is a third, parallel state
+        # machine rather than folding into one merged enum.
+        self.cscan_session = CScanSession()
+        self.cscan_display_settings = default_cscan_display_settings()
+        self._cscan_thread: QThread | None = None
+        self._cscan_worker: CScanWorker | None = None
+        self._cscan_cancel_event: threading.Event | None = None
+        self._current_cscan_token = 0
+        self._cscan_source: CScanSourceKind = CScanSourceKind.CURRENT
+
         self._build_central_views()
         self._build_docks()
         self._build_menu()
         self._build_status_bar()
+        # Overlays the just-built deterministic default layout only if a compatible
+        # saved layout exists (see ADR-018) -- the default layout above is always a
+        # complete, valid fallback on its own.
+        self._restore_window_state()
         self._sync_controls_from_settings()
         self._set_file_load_state(FileLoadState.IDLE)  # a fresh QPushButton defaults to enabled otherwise
         self._set_processing_state(ProcessingState.IDLE)
         self._refresh_geometry_panel()  # same reason -- disables the override form/buttons/export by default
+        self._refresh_cscan_panel()
 
     @property
     def is_loading(self) -> bool:
@@ -245,6 +368,45 @@ class MainWindow(QMainWindow):
         """
         return self._processing_thread is not None
 
+    @property
+    def is_computing_cscan(self) -> bool:
+        """``True`` from the moment a C-scan compute starts until its worker thread has finished.
+
+        Exact analogue of :attr:`is_loading`/:attr:`is_processing`: keyed on
+        ``self._cscan_thread`` (cleared only once ``QThread.finished``
+        fires -- see :meth:`_on_cscan_thread_finished`), never on
+        ``self.cscan_session.state``.
+        """
+        return self._cscan_thread is not None
+
+    @property
+    def active_task_kind(self) -> ActiveTaskKind:
+        """Which single background task (if any) is currently active. See :class:`ActiveTaskKind`."""
+        if self._close_pending:
+            return ActiveTaskKind.SHUTDOWN_PENDING
+        if self.is_loading:
+            return ActiveTaskKind.FILE_LOAD
+        if self.is_processing:
+            return ActiveTaskKind.PROCESSING
+        if self.is_computing_cscan:
+            return ActiveTaskKind.CSCAN
+        return ActiveTaskKind.NONE
+
+    @property
+    def can_start_background_task(self) -> bool:
+        """``True`` only when nothing is busy and shutdown is not pending.
+
+        The single, centralized start-permission every background-task start
+        site (:meth:`open_path`, :meth:`_on_preview_clicked`,
+        :meth:`_on_cscan_compute_clicked`) checks -- one derived decision
+        instead of each site re-spelling the same four-term guard. The
+        underlying :attr:`is_loading`/:attr:`is_processing`/
+        :attr:`is_computing_cscan` properties stay authoritative
+        (ADR-014/ADR-015/ADR-017); this only centralizes the *start*
+        decision, never replaces the per-subsystem gates.
+        """
+        return self.active_task_kind is ActiveTaskKind.NONE
+
     # -- construction -----------------------------------------------------
 
     def _build_central_views(self) -> None:
@@ -265,57 +427,270 @@ class MainWindow(QMainWindow):
         self.bscan_view.pointHovered.connect(self._on_point_hovered)
 
     def _build_docks(self) -> None:
+        """Construct every dock exactly once (never call this a second time -- see
+        :meth:`_arrange_docks_default` for the re-runnable "move docks to their default
+        positions" half of this, used by both initial construction and Reset Window
+        Layout). See ADR-018 for why nesting/corners/objectName/scroll-wrapping are set
+        the way they are below.
+        """
+        # Explicit, deterministic corner ownership -- the bottom dock area spans the
+        # full window width, under the left/right docks, rather than relying on Qt's
+        # own unconfigured default (see ADR-018 Decision 1).
+        self.setDockNestingEnabled(True)
+        self.setCorner(Qt.Corner.BottomLeftCorner, Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.setCorner(Qt.Corner.BottomRightCorner, Qt.DockWidgetArea.BottomDockWidgetArea)
+
+        # Floating is deliberately NOT supported (ADR-018 Decision 5): none of the
+        # features below include DockWidgetFloatable, matching this codebase's
+        # pre-existing (if implicit) behavior -- every dock's setFeatures() call
+        # already omitted it before this fix. Supporting floating well requires
+        # off-screen-geometry clamping and stale-floating-state-overlap handling
+        # that are unrelated to the docked-layout overlap bug this turn fixes; see
+        # ADR-018 Alternatives Considered.
         dataset_dock = QDockWidget("Dataset", self)
+        dataset_dock.setObjectName("datasetDock")
         dataset_dock.setWidget(self._build_dataset_display_widget())
         dataset_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         dataset_dock.setMinimumWidth(220)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dataset_dock)
 
         self.metadata_panel = MetadataPanel()
         metadata_dock = QDockWidget("Metadata", self)
+        metadata_dock.setObjectName("metadataDock")
         metadata_dock.setWidget(self.metadata_panel)
         metadata_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
         metadata_dock.setMinimumWidth(280)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, metadata_dock)
 
         processing_dock = QDockWidget("Processing", self)
-        processing_dock.setWidget(self._build_processing_display_widget())
+        processing_dock.setObjectName("processingDock")
+        processing_dock.setWidget(_wrap_in_scroll_area(self._build_processing_display_widget()))
         processing_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
         processing_dock.setMinimumWidth(260)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, processing_dock)
-        self.splitDockWidget(dataset_dock, processing_dock, Qt.Orientation.Vertical)
 
         geometry_dock = QDockWidget("Survey Geometry", self)
-        geometry_dock.setWidget(self._build_geometry_display_widget())
+        geometry_dock.setObjectName("surveyGeometryDock")
+        geometry_dock.setWidget(_wrap_in_scroll_area(self._build_geometry_display_widget()))
         geometry_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
         geometry_dock.setMinimumWidth(320)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, geometry_dock)
-        self.splitDockWidget(metadata_dock, geometry_dock, Qt.Orientation.Vertical)
 
         self.plan_view = PlanView()
         plan_view_dock = QDockWidget("Plan View", self)
+        plan_view_dock.setObjectName("planViewDock")
         plan_view_dock.setWidget(self.plan_view)
         plan_view_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
         )
         plan_view_dock.setMinimumHeight(180)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, plan_view_dock)
         self.plan_view.pointClicked.connect(self._on_plan_point_clicked)
         self.plan_view.pointHovered.connect(self._on_plan_point_hovered)
 
-        self.resizeDocks([dataset_dock], [240], Qt.Orientation.Horizontal)
-        self.resizeDocks([metadata_dock], [360], Qt.Orientation.Horizontal)
-        self.resizeDocks([plan_view_dock], [220], Qt.Orientation.Vertical)
+        cscan_dock = QDockWidget("C-scan / Time Slice", self)
+        cscan_dock.setObjectName("cscanDock")
+        cscan_dock.setWidget(_wrap_in_scroll_area(self._build_cscan_display_widget()))
+        cscan_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        cscan_dock.setMinimumHeight(240)
+        self.cscan_view.pointClicked.connect(self._on_cscan_point_clicked)
+        self.cscan_view.pointHovered.connect(self._on_cscan_point_hovered)
+        self.bscan_view.timeCursorDragged.connect(self._on_bscan_time_cursor_dragged)
+
+        self._dataset_dock = dataset_dock
         self._metadata_dock = metadata_dock
         self._processing_dock = processing_dock
         self._geometry_dock = geometry_dock
         self._plan_view_dock = plan_view_dock
+        self._cscan_dock = cscan_dock
+        self._all_docks: tuple[QDockWidget, ...] = (
+            dataset_dock,
+            metadata_dock,
+            processing_dock,
+            geometry_dock,
+            plan_view_dock,
+            cscan_dock,
+        )
+
+        self._arrange_docks_default()
+
+    def _arrange_docks_default(self) -> None:
+        """(Re-)establish the deterministic default dock arrangement (ADR-018 Decision 2).
+
+        Re-runnable: called once from :meth:`_build_docks` at construction, and again
+        by :meth:`_on_reset_window_layout_triggered`. Never connects a signal or
+        constructs a widget -- pure geometry/area/tab arrangement -- so calling it a
+        second time never duplicates a signal connection.
+
+        Left: Dataset + Processing, tabified, Dataset frontmost. Right: Metadata +
+        Survey Geometry, tabified, Metadata frontmost. Bottom (full width, see the
+        corner ownership set in :meth:`_build_docks`): Plan View + C-scan / Time
+        Slice, tabified, Plan View frontmost -- chosen over C-scan because Plan View
+        is immediately meaningful right after a file loads (shows the acquisition
+        footprint with no further action), whereas C-scan shows nothing useful until
+        the user configures a request and clicks Compute.
+        """
+        for dock in self._all_docks:
+            dock.setFloating(False)
+            dock.setVisible(True)
+
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dataset_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._processing_dock)
+        self.tabifyDockWidget(self._dataset_dock, self._processing_dock)
+
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._metadata_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._geometry_dock)
+        self.tabifyDockWidget(self._metadata_dock, self._geometry_dock)
+
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._plan_view_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._cscan_dock)
+        self.tabifyDockWidget(self._plan_view_dock, self._cscan_dock)
+
+        self.resizeDocks(
+            [self._dataset_dock, self._metadata_dock],
+            [240, 360],
+            Qt.Orientation.Horizontal,
+        )
+        self.resizeDocks([self._plan_view_dock], [220], Qt.Orientation.Vertical)
+
+        # Select which tab of each group is initially frontmost (documented above).
+        self._dataset_dock.raise_()
+        self._metadata_dock.raise_()
+        self._plan_view_dock.raise_()
+
+    # -- window/dock-layout persistence (ADR-018) --------------------------
+
+    def _save_window_state(self) -> None:
+        """Persist window geometry + dock layout, tagged with the current schema version.
+
+        Called only from :meth:`closeEvent`'s clean-close branch (never mid-shutdown,
+        never on a deferred/in-progress close) and from
+        :meth:`_on_reset_window_layout_triggered` (so a freshly-reset layout becomes
+        the new persisted baseline). A no-op when ``persist_window_state=False``
+        (smoke-test/ephemeral mode -- ADR-018 Addendum): automated verification must
+        never write any layout state. Best-effort: ``QSettings`` write failures are
+        not raised here, matching this module's "cosmetic window placement, never
+        crash the app over it" policy (see ``window_state.py``).
+        """
+        if not self._persist_window_state:
+            return
+        settings = self._window_settings_factory()
+        settings.setValue("layout/schemaVersion", WINDOW_STATE_SCHEMA_VERSION)
+        settings.setValue("layout/geometry", self.saveGeometry())
+        settings.setValue("layout/dockState", self.saveState(WINDOW_STATE_SCHEMA_VERSION))
+        # Plain-int window dimensions, alongside the opaque saveGeometry() blob:
+        # _restore_window_state() needs to know the size the dock state was laid
+        # out for *before* deciding to apply it (see the over-constraint guard
+        # there) -- the blob can't be inspected without applying it.
+        settings.setValue("layout/windowWidth", self.width())
+        settings.setValue("layout/windowHeight", self.height())
+        settings.sync()
+
+    def _restore_window_state(self) -> bool:
+        """Restore a previously-saved window/dock layout if -- and only if -- it matches
+        the current :data:`WINDOW_STATE_SCHEMA_VERSION`.
+
+        Returns ``True`` only if both geometry and dock state were present, schema-
+        matched, and successfully applied (``QMainWindow.restoreState()``'s own return
+        value is checked, not assumed). On any mismatch/missing-key/corrupt-data/
+        restore-failure, returns ``False`` immediately without touching anything --
+        the deterministic default layout :meth:`_build_docks` already constructed is
+        left exactly as-is, and the stale/corrupt entry is never silently re-written
+        (only an explicit :meth:`_save_window_state` call -- on a clean close or an
+        explicit Reset -- ever writes this key). Skipped entirely (returns ``False``
+        without opening any settings backend) when ``persist_window_state=False`` --
+        a smoke-test run must not even *read* the user's layout (ADR-018 Addendum).
+        """
+        if not self._persist_window_state:
+            return False
+        settings = self._window_settings_factory()
+        saved_schema = settings.value("layout/schemaVersion", None)
+        if saved_schema is None:
+            return False
+        try:
+            saved_schema_int = int(str(saved_schema))
+        except (TypeError, ValueError):
+            return False
+        if saved_schema_int != WINDOW_STATE_SCHEMA_VERSION:
+            _LOGGER.info(
+                "Saved window-state schema %s does not match current %s -- using default layout",
+                saved_schema_int,
+                WINDOW_STATE_SCHEMA_VERSION,
+            )
+            return False
+
+        geometry = settings.value("layout/geometry", None)
+        dock_state = settings.value("layout/dockState", None)
+        # QSettings.value() is untyped (returns object); anything that is not
+        # byte-like here is by definition corrupt and falls back to the default.
+        if not isinstance(geometry, (QByteArray, bytes, bytearray)) or not isinstance(
+            dock_state, (QByteArray, bytes, bytearray)
+        ):
+            return False
+        try:
+            saved_width = int(str(settings.value("layout/windowWidth", -1)))
+            saved_height = int(str(settings.value("layout/windowHeight", -1)))
+        except (TypeError, ValueError):
+            return False
+        if saved_width <= 0 or saved_height <= 0:
+            return False
+
+        # Geometry restore is best-effort and gated on the saved size still
+        # fitting the *current* screen: restoreGeometry() clamps an oversized
+        # geometry to the available screen (correct for window placement), but
+        # the dock state below was laid out for the ORIGINAL size -- applying
+        # it into a clamped-smaller window is over-constrained, and empirically
+        # bleeds a few pixels of dock over the central widget (exactly the
+        # overlap class this fix exists for; caught by
+        # test_layout_stable_after_two_open_close_cycles on the offscreen
+        # platform, whose small virtual screen forces the clamp). Order is
+        # Qt's canonical one: geometry first, dock state second.
+        screen = self.screen()
+        available = screen.availableGeometry() if screen is not None else None
+        if available is not None and saved_width <= available.width() and saved_height <= available.height():
+            if not self.restoreGeometry(geometry):
+                _LOGGER.info("restoreGeometry() rejected the saved window geometry -- keeping current size")
+
+        # The same over-constraint guard, independent of whether geometry was
+        # restored: dock state is only applied into a window at least as large
+        # as the one it was saved from (a larger window is safe -- the extra
+        # space simply goes to the central widget).
+        if saved_width > self.width() or saved_height > self.height():
+            _LOGGER.info(
+                "Saved dock layout was for a %dx%d window but the current window is %dx%d -- "
+                "using default layout",
+                saved_width,
+                saved_height,
+                self.width(),
+                self.height(),
+            )
+            return False
+        if not self.restoreState(dock_state, WINDOW_STATE_SCHEMA_VERSION):
+            _LOGGER.info("restoreState() rejected the saved dock layout -- using default layout")
+            # Geometry may already have been applied above; re-run the default
+            # arrangement explicitly rather than trusting that a failed
+            # restoreState left the construction-time layout perfectly untouched.
+            self._arrange_docks_default()
+            return False
+        return True
+
+    def _on_reset_window_layout_triggered(self) -> None:
+        """View > Reset Window Layout: clear saved state and rebuild the default arrangement.
+
+        Operates only on the *active* settings backend (the injected/ephemeral one in
+        test/smoke mode, the real file in production -- ADR-018 Addendum): it can
+        never clear a settings store other than the one this window would itself
+        save to. The follow-up save is guarded by ``persist_window_state`` like
+        every other save.
+        """
+        settings = self._window_settings_factory()
+        settings.clear()
+        settings.sync()
+        self._arrange_docks_default()
+        self._save_window_state()
 
     def _build_dataset_display_widget(self) -> QWidget:
         container = QWidget()
@@ -593,6 +968,135 @@ class MainWindow(QMainWindow):
 
         return container
 
+    def _build_cscan_display_widget(self) -> QWidget:
+        """Sprint 3D-1 C-scan / Time Slice dock: request form + rendered view. See ADR-017."""
+        container = QWidget()
+        outer = QVBoxLayout(container)
+
+        request_group = QGroupBox("Request")
+        request_form = QFormLayout(request_group)
+
+        self.cscan_source_combo = QComboBox()
+        for source_label, _source_value in _DISPLAY_SOURCE_ITEMS:
+            self.cscan_source_combo.addItem(source_label)
+        self.cscan_source_combo.setCurrentIndex(1)  # "Current"
+        self.cscan_source_combo.currentIndexChanged.connect(self._on_cscan_source_changed)
+        request_form.addRow("Source", self.cscan_source_combo)
+
+        self.cscan_geometry_view_combo = QComboBox()
+        for geometry_view_label, _geometry_view_value in _CSCAN_GEOMETRY_VIEW_ITEMS:
+            self.cscan_geometry_view_combo.addItem(geometry_view_label)
+        self.cscan_geometry_view_combo.currentIndexChanged.connect(self._on_cscan_geometry_view_changed)
+        request_form.addRow("Geometry view", self.cscan_geometry_view_combo)
+
+        self.cscan_aggregation_combo = QComboBox()
+        for aggregation_label, _aggregation_value in _CSCAN_AGGREGATION_ITEMS:
+            self.cscan_aggregation_combo.addItem(aggregation_label)
+        self.cscan_aggregation_combo.currentIndexChanged.connect(self._on_cscan_aggregation_changed)
+        request_form.addRow("Aggregation", self.cscan_aggregation_combo)
+
+        self.cscan_center_time_spin = QDoubleSpinBox()
+        self.cscan_center_time_spin.setDecimals(4)
+        self.cscan_center_time_spin.setRange(-_MANUAL_LEVEL_RANGE, _MANUAL_LEVEL_RANGE)
+        self.cscan_center_time_spin.valueChanged.connect(self._on_cscan_center_time_changed)
+        request_form.addRow("Center time, ns", self.cscan_center_time_spin)
+
+        self.cscan_window_width_spin = QDoubleSpinBox()
+        self.cscan_window_width_spin.setDecimals(4)
+        self.cscan_window_width_spin.setRange(0.0, _MANUAL_LEVEL_RANGE)
+        self.cscan_window_width_spin.setEnabled(False)  # SINGLE_SAMPLE (default aggregation) has no window
+        self.cscan_window_width_spin.valueChanged.connect(self._on_cscan_window_width_changed)
+        request_form.addRow("Window width, ns", self.cscan_window_width_spin)
+
+        self.cscan_selected_sample_label = QLabel("—")
+        request_form.addRow("Selected sample/time", self.cscan_selected_sample_label)
+
+        self.cscan_request_error_label = QLabel("")
+        self.cscan_request_error_label.setWordWrap(True)
+        request_form.addRow(self.cscan_request_error_label)
+
+        outer.addWidget(request_group)
+
+        self.cscan_compute_button = QPushButton("Compute")
+        self.cscan_compute_button.clicked.connect(self._on_cscan_compute_clicked)
+        outer.addWidget(self.cscan_compute_button)
+
+        self.cscan_status_label = QLabel("No result")
+        outer.addWidget(self.cscan_status_label)
+
+        self.cscan_progress_bar = QProgressBar()
+        self.cscan_progress_bar.setMaximumWidth(140)
+        self.cscan_progress_bar.setTextVisible(False)
+        self.cscan_progress_bar.setRange(0, 0)  # indeterminate -- no real progress is available
+        self.cscan_cancel_button = QPushButton("Cancel Compute")
+        self.cscan_cancel_button.clicked.connect(self._on_cscan_cancel_clicked)
+        self._cscan_progress_widget = QWidget()
+        cscan_progress_layout = QHBoxLayout(self._cscan_progress_widget)
+        cscan_progress_layout.setContentsMargins(0, 0, 0, 0)
+        cscan_progress_layout.addWidget(self.cscan_progress_bar)
+        cscan_progress_layout.addWidget(self.cscan_cancel_button)
+        self._cscan_progress_widget.setVisible(False)
+        outer.addWidget(self._cscan_progress_widget)
+
+        display_group = QGroupBox("Display")
+        display_form = QFormLayout(display_group)
+
+        self.cscan_colormap_combo = QComboBox()
+        for colormap_label, _colormap_value in _COLORMAP_ITEMS:
+            self.cscan_colormap_combo.addItem(colormap_label)
+        self.cscan_colormap_combo.currentIndexChanged.connect(self._on_cscan_colormap_changed)
+        display_form.addRow("Colormap", self.cscan_colormap_combo)
+
+        self.cscan_percentile_spin = QDoubleSpinBox()
+        self.cscan_percentile_spin.setRange(MIN_CLIP_PERCENTILE, MAX_CLIP_PERCENTILE)
+        self.cscan_percentile_spin.setSingleStep(0.1)
+        self.cscan_percentile_spin.setDecimals(1)
+        self.cscan_percentile_spin.valueChanged.connect(self._on_cscan_percentile_changed)
+        display_form.addRow("Clip percentile", self.cscan_percentile_spin)
+
+        self.cscan_symmetric_check = QCheckBox("Symmetric around zero")
+        self.cscan_symmetric_check.toggled.connect(self._on_cscan_symmetric_toggled)
+        display_form.addRow(self.cscan_symmetric_check)
+
+        self.cscan_manual_check = QCheckBox("Manual levels")
+        self.cscan_manual_check.toggled.connect(self._on_cscan_manual_toggled)
+        display_form.addRow(self.cscan_manual_check)
+
+        self.cscan_manual_min_spin = QDoubleSpinBox()
+        self.cscan_manual_min_spin.setRange(-_MANUAL_LEVEL_RANGE, _MANUAL_LEVEL_RANGE)
+        self.cscan_manual_min_spin.setDecimals(4)
+        self.cscan_manual_min_spin.setEnabled(False)
+        self.cscan_manual_min_spin.valueChanged.connect(self._on_cscan_manual_levels_changed)
+        display_form.addRow("Minimum", self.cscan_manual_min_spin)
+
+        self.cscan_manual_max_spin = QDoubleSpinBox()
+        self.cscan_manual_max_spin.setRange(-_MANUAL_LEVEL_RANGE, _MANUAL_LEVEL_RANGE)
+        self.cscan_manual_max_spin.setDecimals(4)
+        self.cscan_manual_max_spin.setEnabled(False)
+        self.cscan_manual_max_spin.valueChanged.connect(self._on_cscan_manual_levels_changed)
+        display_form.addRow("Maximum", self.cscan_manual_max_spin)
+
+        self.cscan_show_invalid_check = QCheckBox("Show invalid points")
+        self.cscan_show_invalid_check.setChecked(True)
+        self.cscan_show_invalid_check.toggled.connect(self._on_cscan_show_invalid_toggled)
+        display_form.addRow(self.cscan_show_invalid_check)
+
+        self.cscan_fit_to_data_button = QPushButton("Fit to Data")
+        self.cscan_fit_to_data_button.clicked.connect(self._on_cscan_fit_to_data_clicked)
+        display_form.addRow(self.cscan_fit_to_data_button)
+
+        outer.addWidget(display_group)
+
+        self.cscan_export_button = QPushButton("Export C-scan PNG + JSON...")
+        self.cscan_export_button.clicked.connect(self._on_export_cscan_triggered)
+        outer.addWidget(self.cscan_export_button)
+
+        self.cscan_view = CScanView()
+        self.cscan_view.setMinimumHeight(220)
+        outer.addWidget(self.cscan_view, 1)
+
+        return container
+
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         self.open_action = QAction("&Open OGPR...", self)
@@ -610,6 +1114,11 @@ class MainWindow(QMainWindow):
         self.export_geometry_action.setEnabled(False)
         self.export_geometry_action.triggered.connect(self._on_export_geometry_report_triggered)
         file_menu.addAction(self.export_geometry_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+        self.reset_window_layout_action = QAction("&Reset Window Layout", self)
+        self.reset_window_layout_action.triggered.connect(self._on_reset_window_layout_triggered)
+        view_menu.addAction(self.reset_window_layout_action)
 
     def _build_status_bar(self) -> None:
         self.selected_label = QLabel("No file open")
@@ -720,7 +1229,7 @@ class MainWindow(QMainWindow):
             self._refresh_processing_panel()
 
     def _on_preview_clicked(self) -> None:
-        if self._close_pending or self.is_loading or self.is_processing:
+        if not self.can_start_background_task:
             return
         if not self.session.is_loaded:
             return
@@ -828,6 +1337,7 @@ class MainWindow(QMainWindow):
         self.display_source_combo.blockSignals(False)
         self._refresh_processing_panel()
         self._update_views()
+        self._refresh_cscan_panel()
 
     def _on_processing_failed(
         self, token: int, base_revision: int, short_message: str, traceback_text: str
@@ -884,9 +1394,10 @@ class MainWindow(QMainWindow):
         else:
             self._refresh_processing_panel()
             self._update_views()
+            self._refresh_cscan_panel()
 
     def _on_reset_to_raw_clicked(self) -> None:
-        if self._close_pending or self.is_loading or self.is_processing:
+        if self._close_pending or self.is_loading or self.is_processing or self.is_computing_cscan:
             return
         if not self.session.is_loaded:
             return
@@ -917,6 +1428,13 @@ class MainWindow(QMainWindow):
         self.display_source_combo.blockSignals(False)
         self._refresh_processing_panel()
         self._update_views()
+        # Sprint 3D-1: apply_preview()/discard_preview()/reset_to_raw() all
+        # funnel through here -- each one may have just advanced
+        # current_revision or replaced preview_dataset, either of which can
+        # make an existing C-scan result stale (CScanSession.is_stale checks
+        # this dynamically; nothing here needs to know which specific
+        # mutation just happened).
+        self._refresh_cscan_panel()
 
     def _dataset_for_display(self) -> GPRDataset | None:
         """The dataset the B-scan/A-scan/metadata views should currently render.
@@ -956,7 +1474,7 @@ class MainWindow(QMainWindow):
         file-load status bar widgets.
         """
         busy = self._processing_state in _ACTIVE_PROCESSING_STATES
-        blocked = self._close_pending or self.is_loading
+        blocked = self._close_pending or self.is_loading or self.is_computing_cscan
         loaded = self.session.is_loaded
 
         self.operation_combo.setEnabled(not busy)
@@ -1028,7 +1546,7 @@ class MainWindow(QMainWindow):
         self.geometry_validation_label.setText("")
 
     def _on_apply_geometry_clicked(self) -> None:
-        if self._close_pending or self.is_loading or self.is_processing:
+        if self._close_pending or self.is_loading or self.is_processing or self.is_computing_cscan:
             return
         if not self.session.is_loaded:
             return
@@ -1040,6 +1558,7 @@ class MainWindow(QMainWindow):
             return
         self.geometry_validation_label.setText("")
         self._refresh_geometry_panel()
+        self._refresh_cscan_panel()  # geometry_revision just advanced -- re-check C-scan staleness
 
     def _on_discard_geometry_overrides_clicked(self) -> None:
         self.geometry_session.discard_pending_overrides()
@@ -1047,7 +1566,7 @@ class MainWindow(QMainWindow):
         self._sync_geometry_override_form()
 
     def _on_reset_geometry_clicked(self) -> None:
-        if self._close_pending or self.is_loading or self.is_processing:
+        if self._close_pending or self.is_loading or self.is_processing or self.is_computing_cscan:
             return
         if not self.session.is_loaded:
             return
@@ -1057,6 +1576,7 @@ class MainWindow(QMainWindow):
         self.geometry_validation_label.setText("")
         self._sync_geometry_override_form()
         self._refresh_geometry_panel()
+        self._refresh_cscan_panel()  # geometry_revision just advanced -- re-check C-scan staleness
 
     def _sync_geometry_override_form(self) -> None:
         """Reflect pending geometry overrides in every form widget, without re-triggering their handlers."""
@@ -1097,7 +1617,7 @@ class MainWindow(QMainWindow):
         its trace/channel selection sync) stay usable while processing is
         running, per Sprint 3D-0's own interaction rules.
         """
-        blocked = self._close_pending or self.is_loading or self.is_processing
+        blocked = self._close_pending or self.is_loading or self.is_processing or self.is_computing_cscan
         loaded = self.session.is_loaded
 
         for widget in (
@@ -1163,6 +1683,546 @@ class MainWindow(QMainWindow):
             return
         _LOGGER.info("Exported geometry report: %s", path)
 
+    # -- C-scan / Time Slice (Sprint 3D-1, background worker, see ADR-017) ----
+    #
+    # Mirrors the processing-preview background-worker pattern (ADR-015)
+    # almost exactly. Two extra rules specific to C-scan: (1) it is mutually
+    # exclusive with *both* file loading and processing preview (neither may
+    # run while the other is active -- see _refresh_cscan_panel/
+    # _refresh_processing_panel/_refresh_geometry_panel); (2) a computed
+    # result never disappears on its own -- see CScanSession's docstring --
+    # it is only ever cleared by a new successful file load, and only ever
+    # marked *stale* (not cleared) by a processing Apply/Discard/Reset or a
+    # geometry Apply/Reset, via _refresh_cscan_panel's is_stale() check.
+
+    def _cscan_dataset_for_source(self, source: CScanSourceKind) -> GPRDataset | None:
+        if source is CScanSourceKind.RAW:
+            return self.session.raw_dataset
+        if source is CScanSourceKind.PREVIEW:
+            return self.session.preview_dataset
+        return self.session.current_dataset
+
+    def _cscan_valid_mask_for_source(self, source: CScanSourceKind) -> Any:
+        if source is CScanSourceKind.PREVIEW:
+            return self.session.preview_valid_mask
+        if source is CScanSourceKind.CURRENT:
+            return self.session.current_valid_mask
+        return None  # RAW has no processing-derived valid_mask
+
+    def _cscan_source_revision_for(self, source: CScanSourceKind) -> int:
+        """A snapshot int used only for stale-result detection (see :meth:`CScanSession.is_stale`).
+
+        ``RAW`` always reports ``0`` -- ``raw_dataset`` never mutates within
+        one file's lifetime, and a *new* file load unconditionally clears
+        ``cscan_session`` outright (see :meth:`_refresh_for_new_dataset`), so
+        a raw-sourced result never needs a finer-grained staleness check
+        than "was there a new file load since." ``PREVIEW`` uses
+        ``DatasetSession.preview_generation`` -- **not**
+        ``preview_base_revision`` -- because re-previewing with different
+        parameters against the *same* committed dataset replaces
+        ``preview_dataset`` with a genuinely different array while
+        ``preview_base_revision`` stays unchanged; the monotonic generation
+        counter is bumped by every set/replace/clear of the preview, which is
+        precisely the staleness this needs to catch. (An earlier
+        implementation used ``id(session.preview_dataset)`` for the same
+        purpose -- replaced because CPython legally reuses ``id()`` values
+        after garbage collection, so two different previews could in
+        principle compare equal; a monotonic counter cannot collide.)
+        """
+        if source is CScanSourceKind.PREVIEW:
+            return self.session.preview_generation
+        if source is CScanSourceKind.CURRENT:
+            return self.session.current_revision
+        return 0
+
+    def _on_cscan_source_changed(self, index: int) -> None:
+        self._cscan_source = _DISPLAY_SOURCE_TO_CSCAN_KIND[_DISPLAY_SOURCE_ITEMS[index][1]]
+        self._refresh_cscan_panel()
+
+    def _on_cscan_geometry_view_changed(self, index: int) -> None:
+        view = _CSCAN_GEOMETRY_VIEW_ITEMS[index][1]
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(geometry_view=view)
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+        self._refresh_cscan_panel()
+
+    def _on_cscan_aggregation_changed(self, index: int) -> None:
+        aggregation = _CSCAN_AGGREGATION_ITEMS[index][1]
+        uses_window = aggregation_uses_window(aggregation)
+        self.cscan_window_width_spin.setEnabled(uses_window)
+        if uses_window and self.cscan_window_width_spin.value() <= 0:
+            self.cscan_window_width_spin.setValue(1.0)
+        allowed = symmetric_levels_allowed(aggregation)
+        self.cscan_symmetric_check.setEnabled(allowed)
+        if not allowed and self.cscan_symmetric_check.isChecked():
+            self.cscan_symmetric_check.setChecked(False)
+        self._validate_cscan_request_form()
+        self.cscan_status_label.setText(self._cscan_status_text())
+
+    def _on_cscan_center_time_changed(self, value: float) -> None:
+        self._validate_cscan_request_form()
+        # Section-11 hardening: the B-scan time cursor tracks the requested
+        # center time immediately, not only after a successful compute.
+        # set_time_cursor() is the non-emitting programmatic setter, so this
+        # never loops with _on_bscan_time_cursor_dragged (which writes this
+        # spin box and lands back here with the same value).
+        if self.session.is_loaded:
+            self.bscan_view.set_time_cursor(value)
+        # A displayed result computed with the *old* center time is now
+        # parameter-stale -- relabel it, but never auto-start a compute.
+        self.cscan_status_label.setText(self._cscan_status_text())
+
+    def _on_cscan_window_width_changed(self, _value: float) -> None:
+        self._validate_cscan_request_form()
+        self.cscan_status_label.setText(self._cscan_status_text())
+
+    def _current_cscan_aggregation(self) -> CScanAggregation:
+        return _CSCAN_AGGREGATION_ITEMS[self.cscan_aggregation_combo.currentIndex()][1]
+
+    def _validate_cscan_request_form(self) -> tuple[str, ...]:
+        aggregation = self._current_cscan_aggregation()
+        center_time_ns = self.cscan_center_time_spin.value()
+        window_width_ns = (
+            self.cscan_window_width_spin.value() if aggregation_uses_window(aggregation) else None
+        )
+        errors = (
+            *validate_center_time_ns(center_time_ns),
+            *validate_window_width_ns(window_width_ns, aggregation),
+        )
+        self.cscan_request_error_label.setText("\n".join(errors))
+        return errors
+
+    def _on_cscan_compute_clicked(self) -> None:
+        if not self.can_start_background_task:
+            return
+        if not self.session.is_loaded:
+            return
+        dataset = self._cscan_dataset_for_source(self._cscan_source)
+        if dataset is None:
+            return
+        errors = self._validate_cscan_request_form()
+        if errors:
+            return
+
+        aggregation = self._current_cscan_aggregation()
+        window_width_ns = (
+            self.cscan_window_width_spin.value() if aggregation_uses_window(aggregation) else None
+        )
+        geometry_revision = self.geometry_session.geometry_revision
+
+        self._current_cscan_token += 1
+        token = self._current_cscan_token
+        try:
+            request = CScanRequest(
+                aggregation=aggregation,
+                center_time_ns=self.cscan_center_time_spin.value(),
+                window_width_ns=window_width_ns,
+                source_kind=self._cscan_source,
+                source_revision=self._cscan_source_revision_for(self._cscan_source),
+                geometry_revision=geometry_revision,
+                token=token,
+            )
+        except CScanError as exc:
+            # Defensive only -- _validate_cscan_request_form above should already
+            # have caught anything CScanRequest itself would reject.
+            self.cscan_request_error_label.setText(str(exc))
+            return
+        self._start_cscan_compute(dataset, request)
+
+    def _start_cscan_compute(self, dataset: GPRDataset, request: CScanRequest) -> None:
+        valid_mask = self._cscan_valid_mask_for_source(request.source_kind)
+        cancel_event = threading.Event()
+
+        thread = QThread(self)
+        worker = CScanWorker(dataset, valid_mask, request, request.token, cancel_event)
+        worker.moveToThread(thread)
+
+        # See ADR-014/ADR-015: connected only to bound methods of `self`,
+        # never a lambda -- this cross-thread connection is exactly the kind
+        # the lambda rule protects.
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_cscan_progress)
+        worker.result_ready.connect(self._on_cscan_result_ready)
+        worker.failed.connect(self._on_cscan_failed)
+        worker.cancelled.connect(self._on_cscan_cancelled)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._on_cscan_thread_finished)
+        thread.finished.connect(thread.deleteLater)
+
+        self._cscan_thread = thread
+        self._cscan_worker = worker
+        self._cscan_cancel_event = cancel_event
+        self.cscan_session.start_compute()
+        self._refresh_cscan_panel()
+        self.cscan_status_label.setText("Computing…")
+
+        thread.start()
+
+    def _on_cscan_cancel_clicked(self) -> None:
+        if self.cscan_session.state != CScanState.COMPUTING:
+            return
+        _LOGGER.info("C-scan cancellation requested by user")
+        self._request_cancel_current_cscan()
+        self.cscan_session.begin_cancelling()
+        self._refresh_cscan_panel()
+        self.cscan_status_label.setText("Cancelling…")
+
+    def _request_cancel_current_cscan(self) -> None:
+        if self._cscan_cancel_event is not None:
+            self._cscan_cancel_event.set()
+
+    # -- C-scan worker signal handlers (run on the main thread) -------------
+    #
+    # Every handler first checks `token != self._current_cscan_token` (stale
+    # -result rejection, identical to ADR-014's file-load guarantee), then --
+    # only for a successful result -- checks that both `source_revision` and
+    # `geometry_revision` (self-described on the CScanResult, see
+    # archaeogpr.cscan.models) still match the live session values.
+    # Deliberately does **not** clear `self._cscan_thread`/`self._cscan_worker`
+    # or move to IDLE -- that only happens in `_on_cscan_thread_finished`.
+
+    def _on_cscan_progress(self, token: int, message: str) -> None:
+        if token != self._current_cscan_token:
+            return
+        self.cscan_status_label.setText(message)
+
+    def _on_cscan_result_ready(self, token: int, result: CScanResult) -> None:
+        if token != self._current_cscan_token:
+            _LOGGER.info("Discarding stale C-scan result (superseded by a newer request)")
+            return
+        live_source_revision = self._cscan_source_revision_for(result.source_kind)
+        if (
+            result.source_revision != live_source_revision
+            or result.geometry_revision != self.geometry_session.geometry_revision
+        ):
+            _LOGGER.info("Discarding C-scan result computed against a superseded source/geometry revision")
+            self.cscan_session.cancel()
+            self._refresh_cscan_panel()
+            return
+        request = CScanRequest(
+            aggregation=result.aggregation,
+            center_time_ns=result.requested_center_time_ns,
+            window_width_ns=result.requested_window_width_ns,
+            source_kind=result.source_kind,
+            source_revision=result.source_revision,
+            geometry_revision=result.geometry_revision,
+            token=token,
+        )
+        self.cscan_session.complete(request, result)
+        _LOGGER.info("C-scan result ready: shape=%s", result.values.shape)
+        if result.selected_sample_index is not None:
+            self.cscan_selected_sample_label.setText(
+                f"sample {result.selected_sample_index} @ {result.actual_start_time_ns:.4f} ns"
+            )
+        else:
+            self.cscan_selected_sample_label.setText(
+                f"[{result.actual_start_time_ns:.4f}, {result.actual_stop_time_ns:.4f}) ns"
+            )
+        self.bscan_view.set_time_cursor(result.requested_center_time_ns)
+        self._refresh_cscan_panel()
+
+    def _on_cscan_failed(self, token: int, short_message: str, traceback_text: str) -> None:
+        if token != self._current_cscan_token:
+            return
+        _LOGGER.error("C-scan compute failed: %s\n%s", short_message, traceback_text)
+        self.cscan_session.fail(short_message)
+        self._refresh_cscan_panel()
+        QMessageBox.critical(self, "C-scan compute failed", short_message)
+
+    def _on_cscan_cancelled(self, token: int) -> None:
+        if token != self._current_cscan_token:
+            return
+        _LOGGER.info("C-scan compute cancelled")
+        self.cscan_session.cancel()
+        self._refresh_cscan_panel()
+
+    def _on_cscan_thread_finished(self) -> None:
+        """Connected to the in-flight C-scan run's ``QThread.finished`` -- the one place cleanup happens.
+
+        Exact analogue of :meth:`_on_load_thread_finished`/
+        :meth:`_on_processing_thread_finished`.
+        """
+        self._cscan_thread = None
+        self._cscan_worker = None
+        self._cscan_cancel_event = None
+        self._refresh_cscan_panel()
+        if self._close_pending:
+            QTimer.singleShot(0, self.close)
+
+    def _cscan_form_matches_request(self) -> bool:
+        """``True`` if the request form's current values match the displayed result's request.
+
+        Section-11 hardening: changing any request-form value (center time,
+        window width, aggregation, source) after a compute relabels the
+        displayed result "Stale" via :meth:`_cscan_status_text` -- it never
+        auto-starts a recompute (only the Compute button does that). ``True``
+        (trivially matching) when there is no computed request yet.
+        """
+        request = self.cscan_session.request
+        if request is None:
+            return True
+        aggregation = self._current_cscan_aggregation()
+        if aggregation is not request.aggregation or self._cscan_source is not request.source_kind:
+            return False
+        if abs(self.cscan_center_time_spin.value() - request.center_time_ns) > 1e-9:
+            return False
+        if aggregation_uses_window(aggregation):
+            if request.window_width_ns is None:
+                return False
+            if abs(self.cscan_window_width_spin.value() - request.window_width_ns) > 1e-9:
+                return False
+        return True
+
+    def _cscan_status_text(self) -> str:
+        if self.cscan_session.state == CScanState.COMPUTING:
+            return "Computing…"
+        if self.cscan_session.state == CScanState.CANCELLING:
+            return "Cancelling…"
+        if not self.cscan_session.has_result:
+            if self.cscan_session.state == CScanState.ERROR:
+                return "Failed"
+            return "No result"
+        if self.geometry_session.resolution is not None and self.cscan_session.is_stale(
+            current_source_revision=self._cscan_source_revision_for(self.cscan_session.request.source_kind)
+            if self.cscan_session.request
+            else 0,
+            current_geometry_revision=self.geometry_session.geometry_revision,
+        ):
+            return "Stale"
+        if not self._cscan_form_matches_request():
+            return "Stale (parameters changed — recompute)"
+        if self.cscan_session.state == CScanState.CANCELLED:
+            return "Cancelled (showing last valid result)"
+        return "Ready"
+
+    def _refresh_cscan_panel(self) -> None:
+        """The one place every C-scan dock widget's enabled/visible/text state is set.
+
+        Mirrors :meth:`_refresh_processing_panel`/:meth:`_refresh_geometry_panel`'s
+        "one place" role. Only the request form/Compute/export are gated on
+        busy-state -- the rendered view itself stays visible (showing the
+        last valid result, relabeled stale/cancelled/failed as appropriate)
+        per Sprint 3D-1's "keep last valid result, label it, don't blank it"
+        decision (see ``CScanSession`` docstring / ADR-017).
+        """
+        busy = self.cscan_session.state in _ACTIVE_CSCAN_STATES
+        blocked = self._close_pending or self.is_loading or self.is_processing
+        loaded = self.session.is_loaded
+        selected_source = self._cscan_source
+        source_dataset = self._cscan_dataset_for_source(selected_source) if loaded else None
+
+        for widget in (
+            self.cscan_source_combo,
+            self.cscan_geometry_view_combo,
+            self.cscan_aggregation_combo,
+            self.cscan_center_time_spin,
+            self.cscan_window_width_spin,
+        ):
+            widget.setEnabled(not busy and not blocked)
+
+        has_preview = self.session.preview_dataset is not None
+        preview_index = [value for _label, value in _DISPLAY_SOURCE_ITEMS].index("preview")
+        combo_model = cast(QStandardItemModel, self.cscan_source_combo.model())
+        preview_item = combo_model.item(preview_index)
+        if preview_item is not None:
+            preview_item.setEnabled(has_preview)
+
+        # Section-11 hardening: each geometry view's combo item is gated on its
+        # own *named* readiness gate from ADR-016 (actual X/Y point map on
+        # ``actual_xy_point_grid_ready``, derived s/c parameter grid on
+        # ``local_parameter_grid_ready``) rather than only on the underlying
+        # coordinate arrays' presence. Item-level (never whole-combo) gating:
+        # the current selection is never force-switched, and the view widget
+        # itself still degrades safely if its arrays are absent.
+        readiness = self.geometry_session.readiness
+        view_model = cast(QStandardItemModel, self.cscan_geometry_view_combo.model())
+        for view_index, (_view_label, view_value) in enumerate(_CSCAN_GEOMETRY_VIEW_ITEMS):
+            view_item = view_model.item(view_index)
+            if view_item is None:
+                continue
+            if readiness is None:
+                view_item.setEnabled(False)
+                continue
+            gate = (
+                readiness.actual_xy_point_grid_ready
+                if view_value is CScanGeometryView.ACTUAL_XY_POINT_MAP
+                else readiness.local_parameter_grid_ready
+            )
+            view_item.setEnabled(gate.ready)
+            view_item.setToolTip("" if gate.ready else "; ".join(gate.blocking_issues))
+
+        can_compute = loaded and not busy and not blocked and source_dataset is not None
+        self.cscan_compute_button.setEnabled(can_compute)
+        self.cscan_cancel_button.setEnabled(self.cscan_session.state == CScanState.COMPUTING)
+        self._cscan_progress_widget.setVisible(busy)
+        self.cscan_status_label.setText(self._cscan_status_text())
+        self.cscan_export_button.setEnabled(
+            self.cscan_session.has_result and not busy and not blocked and not self._close_pending
+        )
+
+        geometry = self.geometry_session.geometry if self.geometry_session.resolution is not None else None
+        self.cscan_view.set_geometry(geometry)
+        self.cscan_view.set_result(self.cscan_session.result)
+        if loaded:
+            self.cscan_view.set_selected_trace_channel(
+                self.session.selected_trace, self.session.selected_channel
+            )
+
+    # -- C-scan display settings ---------------------------------------------
+
+    def _on_cscan_colormap_changed(self, index: int) -> None:
+        value = _COLORMAP_ITEMS[index][1]
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(colormap=value)
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_percentile_changed(self, value: float) -> None:
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(clip_percentile=value)
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_symmetric_toggled(self, checked: bool) -> None:
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(symmetric_levels=checked)
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_manual_toggled(self, checked: bool) -> None:
+        self.cscan_manual_min_spin.setEnabled(checked)
+        self.cscan_manual_max_spin.setEnabled(checked)
+        if checked:
+            self.cscan_display_settings = self.cscan_display_settings.with_changes(
+                manual_levels_enabled=True,
+                manual_min=self.cscan_manual_min_spin.value(),
+                manual_max=self.cscan_manual_max_spin.value(),
+            )
+        else:
+            self.cscan_display_settings = self.cscan_display_settings.with_changes(
+                manual_levels_enabled=False
+            )
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_manual_levels_changed(self, _value: float) -> None:
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(
+            manual_min=self.cscan_manual_min_spin.value(), manual_max=self.cscan_manual_max_spin.value()
+        )
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_show_invalid_toggled(self, checked: bool) -> None:
+        self.cscan_display_settings = self.cscan_display_settings.with_changes(show_invalid_points=checked)
+        self.cscan_view.set_display_settings(self.cscan_display_settings)
+
+    def _on_cscan_fit_to_data_clicked(self) -> None:
+        self.cscan_view.fit_to_data()
+
+    # -- C-scan export (PNG + JSON sidecar, both atomic -- see ADR-017) ------
+
+    def _on_export_cscan_triggered(self) -> None:
+        if self._close_pending or not self.session.is_loaded or not self.cscan_session.has_result:
+            return
+        result = self.cscan_session.result
+        assert result is not None
+        if self.geometry_session.resolution is not None and self.cscan_session.is_stale(
+            current_source_revision=self._cscan_source_revision_for(result.source_kind),
+            current_geometry_revision=self.geometry_session.geometry_revision,
+        ):
+            QMessageBox.warning(
+                self, "Stale C-scan result", "This C-scan result is stale; recompute before exporting."
+            )
+            return
+
+        default_name = "cscan.png"
+        if self.session.source_path is not None:
+            default_name = f"{self.session.source_path.stem}_cscan.png"
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self, "Export C-scan PNG", default_name, _PNG_FILE_FILTER
+        )
+        if not path:
+            return
+
+        settings = self.cscan_display_settings
+        levels = compute_cscan_display_levels(result.values, result.aggregation, settings)
+        geometry = self.geometry_session.geometry if self.geometry_session.resolution is not None else None
+        x_grid = geometry.x_coordinates if geometry is not None else None
+        y_grid = geometry.y_coordinates if geometry is not None else None
+        source_filename = self.session.source_path.name if self.session.source_path else None
+        crs_identifier = geometry.crs_identifier if geometry is not None else None
+        crs_validation_status = geometry.crs_validation_status.value if geometry is not None else "missing"
+        source_path = self.session.source_path
+        assert source_path is not None
+
+        try:
+            png_path = export_cscan_png(
+                result,
+                settings.geometry_view,
+                levels,
+                settings.colormap,
+                path,
+                x_grid=x_grid,
+                y_grid=y_grid,
+                show_invalid_points=settings.show_invalid_points,
+                source_filename=source_filename,
+            )
+        except Exception as exc:  # noqa: BLE001 - export failure must reach the user, not crash the app
+            _LOGGER.error("Failed to export C-scan PNG to %s", path, exc_info=True)
+            QMessageBox.critical(
+                self, "Export failed", f"Could not export C-scan:\n{path}\n\n{type(exc).__name__}: {exc}"
+            )
+            return
+
+        json_path = Path(path).with_suffix("").with_suffix(".cscan.json")
+        try:
+            export_cscan_report(
+                result,
+                json_path,
+                source_path=source_path,
+                geometry_view=settings.geometry_view,
+                colormap=settings.colormap,
+                display_min=levels[0],
+                display_max=levels[1],
+                crs_identifier=crs_identifier,
+                crs_validation_status=crs_validation_status,
+            )
+        except Exception as exc:  # noqa: BLE001 - export failure must reach the user, not crash the app
+            # Section-11 hardening (partial-failure semantics): the PNG and its
+            # JSON sidecar are one deliverable -- if the sidecar fails after the
+            # PNG was already written, remove the PNG so a half-exported,
+            # provenance-less image never remains on disk, and say exactly that.
+            _LOGGER.error("Failed to export C-scan JSON sidecar to %s", json_path, exc_info=True)
+            with contextlib.suppress(OSError):
+                Path(png_path).unlink()
+            QMessageBox.critical(
+                self,
+                "Export failed",
+                "Could not write the C-scan JSON sidecar:\n"
+                f"{json_path}\n\n{type(exc).__name__}: {exc}\n\n"
+                "The already-written PNG was removed so no partial export remains.",
+            )
+            return
+        _LOGGER.info("Exported C-scan PNG+JSON: %s / %s", png_path, json_path)
+
+    # -- C-scan selection/cursor synchronization ------------------------------
+
+    def _on_cscan_point_clicked(self, trace: int, channel: int) -> None:
+        if not self.session.is_loaded or self.is_loading or self.is_processing:
+            return
+        self.channel_spin.setValue(self.session.clamp_channel(channel))
+        self._select_trace(trace)
+
+    def _on_cscan_point_hovered(self, trace: int, channel: int, coord_a: float, coord_b: float) -> None:
+        value_text = ""
+        result = self.cscan_session.result
+        if (
+            result is not None
+            and 0 <= trace < result.values.shape[0]
+            and 0 <= channel < result.values.shape[1]
+        ):
+            value = result.values[trace, channel]
+            value_text = f", value {value:.4g}" if np.isfinite(value) else ", value invalid"
+        self.cursor_label.setText(
+            f"C-scan — trace {trace}, channel {channel:02d}, coords ({coord_a:.4g}, {coord_b:.4g})"
+            f"{value_text}"
+        )
+
+    def _on_bscan_time_cursor_dragged(self, time_ns: float) -> None:
+        self.cscan_center_time_spin.setValue(time_ns)
+
     # -- file opening (GUI-1B: background worker, see ADR-014) ---------------
 
     def _on_open_triggered(self) -> None:
@@ -1194,18 +2254,15 @@ class MainWindow(QMainWindow):
         (:attr:`is_processing`) -- Sprint GUI-3A's file-load/processing
         mutual exclusion, see ADR-015: the two background workers never run
         at the same time, so neither ever has to reason about the other
-        touching ``self.session`` concurrently.
+        touching ``self.session`` concurrently. Sprint 3D-1 adds a third:
+        also rejects a load while a C-scan compute is running
+        (:attr:`is_computing_cscan`), for the same reason (see ADR-017).
         """
-        if self._close_pending:
-            _LOGGER.info("File load ignored because application shutdown is pending.")
-            return
-
-        if self.is_loading:
-            _LOGGER.info("Load already in progress -- rejecting new request for %s", path)
-            return
-
-        if self.is_processing:
-            _LOGGER.info("Load rejected because a processing preview is running for %s", path)
+        if not self.can_start_background_task:
+            # Centralized start decision (Section-11 hardening): one derived
+            # check instead of four separate ifs; the active kind keeps the
+            # log message just as diagnosable as the per-reason messages were.
+            _LOGGER.info("Load rejected (%s is active/pending) for %s", self.active_task_kind.value, path)
             return
 
         resolved = Path(path).resolve()
@@ -1369,23 +2426,27 @@ class MainWindow(QMainWindow):
         / :meth:`_on_processing_thread_finished` retries the close.
         ``QThread.terminate()`` is never used.
 
-        File loading and processing preview are mutually exclusive (see
-        ``ADR-015``), so at most one of :attr:`is_loading`/
-        :attr:`is_processing` is ever ``True`` here -- but both branches
-        below are unconditional (not ``elif``) so this stays correct even if
-        that invariant is ever relaxed later.
+        File loading, processing preview, and C-scan compute are mutually
+        exclusive (see ``ADR-015``/``ADR-017``), so at most one of
+        :attr:`is_loading`/:attr:`is_processing`/:attr:`is_computing_cscan`
+        is ever ``True`` here -- but all three branches below are
+        unconditional (not ``elif``) so this stays correct even if that
+        invariant is ever relaxed later.
 
         :attr:`_close_pending` is only cleared in the branch below, once a
         close is actually being accepted -- never in
-        :meth:`_on_load_thread_finished`/:meth:`_on_processing_thread_finished`.
-        This keeps the flag latched continuously from the very first
-        deferred call here through to this final accepted one, with no gap
-        in between where :meth:`open_path`/:meth:`_on_preview_clicked` would
-        see shutdown as no-longer-pending while the window is still only
-        hidden, not actually closed.
+        :meth:`_on_load_thread_finished`/:meth:`_on_processing_thread_finished`/
+        :meth:`_on_cscan_thread_finished`. This keeps the flag latched
+        continuously from the very first deferred call here through to this
+        final accepted one, with no gap in between where
+        :meth:`open_path`/:meth:`_on_preview_clicked`/
+        :meth:`_on_cscan_compute_clicked` would see shutdown as
+        no-longer-pending while the window is still only hidden, not
+        actually closed.
         """
-        if not self.is_loading and not self.is_processing:
+        if not self.is_loading and not self.is_processing and not self.is_computing_cscan:
             self._close_pending = False
+            self._save_window_state()
             super().closeEvent(event)
             return
 
@@ -1401,6 +2462,11 @@ class MainWindow(QMainWindow):
             self._request_cancel_current_processing()
             self._set_processing_state(ProcessingState.CANCELLING)
             self.processing_status_label.setText("Cancelling processing before exit…")
+        if self.is_computing_cscan:
+            self._request_cancel_current_cscan()
+            self.cscan_session.begin_cancelling()
+            self._refresh_cscan_panel()
+            self.cscan_status_label.setText("Cancelling before exit…")
         event.ignore()
         self.hide()
 
@@ -1446,6 +2512,34 @@ class MainWindow(QMainWindow):
         self._sync_geometry_override_form()
         self._refresh_geometry_panel()
 
+        # Sprint 3D-1: a successful file load always clears the old C-scan
+        # result outright (see CScanSession.clear docstring / spec section
+        # 21) -- never merely marked stale, unlike a processing/geometry
+        # change on the *same* file (see _on_processing_preview_ready et al.
+        # and _on_apply_geometry_clicked, which only call
+        # _refresh_cscan_panel() and let CScanSession.is_stale() do the
+        # rest). Center time/window width are reseeded to sensible defaults
+        # for the new dataset's own time axis.
+        self.cscan_session.clear()
+        self._cscan_source = CScanSourceKind.CURRENT
+        self.cscan_source_combo.blockSignals(True)
+        self.cscan_source_combo.setCurrentIndex(1)  # "Current"
+        self.cscan_source_combo.blockSignals(False)
+        dataset = self.session.dataset
+        assert dataset is not None
+        sampling = dataset.metadata.get("sampling") or {}
+        sampling_time_ns = sampling.get("sampling_time_ns") or 1.0
+        self.cscan_center_time_spin.blockSignals(True)
+        self.cscan_center_time_spin.setValue(float(dataset.time_ns[0]))
+        self.cscan_center_time_spin.blockSignals(False)
+        self.cscan_window_width_spin.blockSignals(True)
+        self.cscan_window_width_spin.setValue(float(sampling_time_ns) * 10.0)
+        self.cscan_window_width_spin.blockSignals(False)
+        self.cscan_selected_sample_label.setText("—")
+        self.bscan_view.set_time_cursor(None)
+        self._validate_cscan_request_form()
+        self._refresh_cscan_panel()
+
         name = self.session.source_path.name if self.session.source_path else "?"
         self.setWindowTitle(f"{_BASE_TITLE} — {name}")
         self._refresh_selected_label()
@@ -1475,6 +2569,7 @@ class MainWindow(QMainWindow):
         self._update_views()
         self._refresh_selected_label()
         self.plan_view.set_selected_trace_channel(self.session.selected_trace, self.session.selected_channel)
+        self.cscan_view.set_selected_trace_channel(self.session.selected_trace, self.session.selected_channel)
 
     def _on_trace_clicked(self, trace: int) -> None:
         if not self.session.is_loaded:
@@ -1499,6 +2594,7 @@ class MainWindow(QMainWindow):
         self.trace_spin.blockSignals(False)
         self._refresh_selected_label()
         self.plan_view.set_selected_trace_channel(clamped, self.session.selected_channel)
+        self.cscan_view.set_selected_trace_channel(clamped, self.session.selected_channel)
 
     def _on_point_hovered(self, trace: int, time_ns: float, amplitude: float) -> None:
         self.cursor_label.setText(

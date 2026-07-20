@@ -22,6 +22,8 @@ tags: [decision]
 | ADR-014 | [[ADR_014_GUI_Background_Worker_and_Cancellation_Policy]] | accepted |
 | ADR-015 | [[ADR_015_GUI_Processing_Preview_and_Atomic_Apply]] | accepted |
 | ADR-016 | [[ADR_016_Geometry_Provenance_and_Readiness_Gates]] | accepted |
+| ADR-017 | [[ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]] | accepted |
+| ADR-018 | [[ADR_018_Versioned_Dock_Layout_and_Reset_Policy]] | accepted |
 
 ADR-010 numarası bu index'te kasıtlı olarak atlanmıştır: `src/archaeogpr/
 sprint4b_candidates.py` (untracked, `sprint-04b-gain-candidates`

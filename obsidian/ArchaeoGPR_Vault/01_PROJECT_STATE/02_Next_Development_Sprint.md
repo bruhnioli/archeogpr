@@ -16,21 +16,27 @@ tags: [project-state, sprint]
 > processing preview & apply — 5 stabil processing fonksiyonu, `0.3.0`) —
 > `main`'e merge edildi (2026-07-19, PR #4, merge commit `f3e516c`).
 > **Sprint 3D-0** (survey geometry inspector + C-scan/3D readiness
-> raporlama — volume render YOK, `0.4.0`) — henüz merge edilmedi,
-> kullanıcının onayı bekleniyor. Bkz.
+> raporlama — volume render YOK, `0.4.0`) — `main`'e merge edildi
+> (2026-07-20, PR #5, merge commit `a43d947`). **Sprint 3D-1** (actual
+> X/Y point-grid C-scan/time-slice viewer — Qt-free `archaeogpr.cscan`
+> paketi, gridding/PyVista/volume render YOK, `0.5.0`) — implementasyon +
+> testler tamam, dokümantasyon/quality gate/build sürüyor, henüz
+> commit/merge edilmedi. Bkz.
 > [[02_SPRINTS/Sprint_GUI_0_Foundation]],
 > [[02_SPRINTS/Sprint_GUI_1_Viewer_Shell]],
 > [[02_SPRINTS/Sprint_GUI_2_Display_Controls]],
 > [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
 > [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]],
 > [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
+> [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]],
 > [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
 > [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]],
-> [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]. Bu iki
-> track birbirinden bağımsızdır: GUI track'inin ilerlemesi Sprint 4B'yi
-> BAŞLATMAZ, Sprint 4B'nin tanımsız kalması da bir sonraki GUI sprintini
-> (undo/redo, recipe, veya 3D/gridding) engellemez — ikisi de yalnızca
-> kullanıcının kendi, ayrı açık isteğiyle başlar.
+> [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]],
+> [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]. Bu
+> iki track birbirinden bağımsızdır: GUI track'inin ilerlemesi Sprint
+> 4B'yi BAŞLATMAZ, Sprint 4B'nin tanımsız kalması da bir sonraki GUI
+> sprintini (gridding/volume render, undo/redo, recipe) engellemez —
+> ikisi de yalnızca kullanıcının kendi, ayrı açık isteğiyle başlar.
 
 ## Durum: Sprint 4A done (canonical policy = A0); sıradaki adım hâlâ bir SPRINT DEĞİL, kullanıcının kendi açık isteği
 
@@ -157,8 +163,10 @@ Ayrı, paralel GUI/3D track'i için: [[02_SPRINTS/Sprint_GUI_0_Foundation]],
 [[02_SPRINTS/Sprint_GUI_1B_Background_Tasks]],
 [[02_SPRINTS/Sprint_GUI_3A_Processing_Preview_Apply]],
 [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
+[[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]],
 [[06_DECISIONS/ADR_011_GUI_Technology_Decision]],
 [[06_DECISIONS/ADR_014_GUI_Background_Worker_and_Cancellation_Policy]],
 [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]],
 [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]],
+[[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]],
 [[01_PROJECT_STATE/06_GUI_3D_Risk_Register]].

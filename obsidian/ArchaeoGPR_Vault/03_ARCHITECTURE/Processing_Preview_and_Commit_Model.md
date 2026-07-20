@@ -42,6 +42,26 @@ type: architecture
 > history`'ye asla yazılmaz. Detay:
 > [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]],
 > [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]].
+>
+> **Güncelleme (2026-07-20, Sprint 3D-1 sonrası):** Yeni bir
+> `CScanSession` (`src/archaeogpr/gui/models/cscan_session.py`) eklendi —
+> `GeometrySession` gibi bu da `DatasetSession`'a hiç referans tutmuyor,
+> yalnızca geçmiş bir C-scan compute'unun kullandığı
+> `source_revision`/`geometry_revision`'ın bir anlık görüntüsünü saklıyor.
+> `MainWindow` bunları canlı `DatasetSession.current_revision`
+> (`CURRENT` kaynağı için) / `id(preview_dataset)` (`PREVIEW` kaynağı
+> için, `preview_base_revision` değil — bkz. ADR-017 Decision 7) /
+> `GeometrySession.geometry_revision`'a karşı karşılaştırıp
+> `CScanSession.is_stale()` ile stale sonuçları tespit ediyor. Bu
+> karşılaştırma, `ProcessingWorker`'ın `base_revision`'ının
+> `DatasetSession.current_revision`'a karşı zaten `MainWindow` tarafından
+> (worker'ın kendisi tarafından değil) karşılaştırılmasıyla birebir aynı
+> desen. C-scan compute'u, aşağıdaki preview/apply/discard/reset-to-raw
+> akışının **hiçbirini değiştirmiyor** — yalnızca üç yönlü mutual
+> exclusion'a yeni bir taraf olarak katılıyor (`ActiveTaskKind`, bkz.
+> ADR-017 Decision 9). Detay:
+> [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]],
+> [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]].
 
 ## Amaç
 
@@ -183,3 +203,5 @@ NPZ/JSON'a yapılır (mevcut `export/processed.py`,
 - [[06_DECISIONS/ADR_015_GUI_Processing_Preview_and_Atomic_Apply]]
 - [[02_SPRINTS/Sprint_3D_0_Survey_Geometry_Inspector]]
 - [[06_DECISIONS/ADR_016_Geometry_Provenance_and_Readiness_Gates]]
+- [[02_SPRINTS/Sprint_3D_1_Actual_XY_Point_Grid_CScan]]
+- [[06_DECISIONS/ADR_017_Actual_XY_CScan_and_No_Interpolation_Policy]]
